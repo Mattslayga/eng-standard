@@ -1,0 +1,145 @@
+# eng.config.yml: every setting and decision for this repo. Owner: Matt. Agents draft changes; Matt approves.
+# Run `eng sync` after editing. `eng drift-check` fails if generated files differ from what this renders.
+version: 1
+
+project:
+  name: sandbox-repo
+  default_branch: main
+  protected_branches: [main]       # Never rebased, force-pushed or deleted. Feature branches may be rebased (pstack).
+  commands:                       # The repo's own commands, unchanged. `eng gate` runs the ones listed in gates.required.
+    install: vp install             # vp drives the pinned packageManager (bun@x.y.z) from package.json
+    typecheck: vp check              # Oxfmt + Oxlint (type-aware) + type check; tsconfig needs skipLibCheck if plain tsc is also used (bun-types vs vite client types)
+    test: vp test run                # Vitest via Vite+; single runner (convex-test needs Vite's import.meta.glob)
+    dev: vp dev
+  ui_paths: ["src/ui/**"]
+
+# ---------------- STACK: every choice is a DRAFT decision for Matt ----------------
+stack:
+  status: DRAFT                   # DRAFT until Matt marks each decision APPROVED.
+  defaults:
+    language:        { use: TypeScript (strict), why: "One language across UI, backend and Convex; agents are strongest in it.", decision: DRAFT }
+    runtime:         { use: "Node 24 via vp (vp env); Bun for scripts and the Convex CLI", why: "vp test/check/build are Node-hosted and Confect needs Node >= 24; Bun runs one-off scripts and `bun x convex` fast (Convex Bun quickstart).", decision: DRAFT }
+    package_manager: { use: "bun via vp install/add/remove, packageManager pinned in package.json (e.g. bun@1.4.3)", why: "Vite+ supports bun as a package manager and installs with whatever packageManager pins; proven in proof-log/14.", decision: DRAFT }
+    test_runner:     { use: "vp test (Vitest) as the single runner, incl. convex-test (edge-runtime project) and parity/property tests", why: "One runner; convex-test needs Vite (import.meta.glob) and fails under bun test; Vitest 5 + convex-test 0.0.61 proven in proof-log/14.", decision: DRAFT }
+    lint_format:     { use: "vp check (Oxfmt + type-aware Oxlint) with ignorePatterns for .agents/.claude/.cursor/.eng/.intent/generated/_generated/fallow-baselines/*.md, + eng lint for custom rules", why: "Oxc is what Vite+ bundles; without ignores vp check formats vendored skill files (106 files in proof-log/14).", decision: DRAFT }
+    build_dev:       { use: "vp dev/build for web apps, vp pack for libraries; vp run for tasks, cache only on side-effect-free tasks (cache: false for scripts with effects)", why: "Vite+ unifies Vite/Rolldown/tsdown; vp run cache hits replay output without running the command.", decision: DRAFT }
+    backend:         { use: Convex, why: "Reactive DB + functions with generated types; already used in thinksmart/motus/infotech.", decision: DRAFT }
+    effects:         { use: "Effect (with Confect for Convex)", why: "Typed errors/services/schemas; Confect is the maintained Effect<->Convex framework (community, not Convex-official).", decision: DRAFT }
+    codebase_analysis: { use: "Fallow (npm fallow, exact pin) for the module graph: unused files/exports/deps, cycles, boundaries, duplication, complexity", why: "Linters see one file; fallow sees the project graph (fallow.tools/docs/explanations/fallow-vs-linters). Rust-native, MIT, zero-config for Vite/Vitest/Convex. Replaces knip and jscpd; complements vp check and eng lint.", decision: DRAFT }
+    proofs:          { use: "Bend2 for laws on core pure logic", why: "Machine-checked invariants as backpressure; only binds Bend code, so scope it to small pure modules.", decision: DRAFT }
+  languages:
+    allowed: [typescript, javascript, bend]
+    justified_when:               # DRAFT. A new language needs a stack.exceptions entry with one of these reasons.
+      rust: "Hot path where measured CPU/memory cost of TS is the bottleneck, a native/systems boundary (e.g. core-edge), or a library only available in Rust. Not for preference."
+      python: "Data/ML work that depends on a Python-only library, kept behind a service boundary."
+      other: "Only with a measured reason TS cannot meet, an owner, and a rollback plan."
+  frameworks:
+    allowed: [convex, effect, "@confect/server", vite, vite-plus, vitest, oxlint, fallow]
+  exceptions: []                  # e.g. {kind: language|framework|package_manager, name: rust, reason: "...", approved_by: Mattslayga}
+  notes:
+    - "Bun vs Vite+: vp test/check/build run on Node (vp manages Node); bun is the package manager under vp (viteplus.dev/guide, llms-full.txt). Bun runtime is for scripts and the Convex CLI, run via `vp run` or `bun`."
+    - "Confect needs Node >= 24 for its CLI, TS strict:true, and only a subset of Effect Schema (confect.dev quickstart)."
+    - "Convex functions run in Convex's runtime regardless of local runtime choice; the toolchain only affects CLI, codegen, tests and the app shell."
+
+agents:
+  harnesses: [claude-code, codex, cursor]   # AGENTS.md is read by Codex and Cursor; CLAUDE.md imports it.
+  skills_dir: .agents/skills
+  rules:                          # Rule -> enforcer table (pstack correct). enforced_by: a lint rule id, check id, gate, hook path, or `review` + why (judgment only). eng verify maintain fails on a rule with nothing enforcing it.
+    - { rule: "Orders are written only through saveOrder()", enforced_by: gate-only-writes }
+  skills:                         # <source>/<name>. Vendored copies at pins in pkg/vendor/PINS.txt; eng/* are ours.
+    - pstack/*                     # the full pstack set (55 skills + 2 subagents), pinned in pkg/vendor/PINS.txt
+    - pocock/grilling
+    - pocock/grill-with-docs
+    - pocock/domain-modeling
+    - eng/eng-verify
+    - eng/find-the-laws
+    - eng/write-law-and-proof
+    - eng/law-conformance
+    - pi-intent/intent-conformance
+    - eng/property-test
+    - eng/add-gate
+    - eng/custom-lint
+    - eng/eng-retro                # learning loop: eng retro (copies pocock/retro + pstack correct)
+    - pocock/retro
+    - eng/e2e-flow
+    - eng/eng-stack
+    - fallow/fallow                 # official, version-matched to the pinned CLI (pkg/vendor/PINS.txt)
+    - fallow/fallow-setup
+
+fallow:                           # JS/TS repos. Config lives in .fallowrc.json (entry, ignoreDependencies, rules, boundaries).
+  version: 3.33.1                 # exact; must equal node_modules fallow --version and the vendored skill
+  mode: greenfield                # greenfield = whole repo clean (bare `fallow`). brownfield = new findings only vs baselines.
+  baselines_dir: fallow-baselines # brownfield: `eng fallow --save-baseline` on main, commit, refresh per release (never per merge). Keep .fallow/ (cache) gitignored.
+
+merge:                            # Per repo. There is no global merge rule.
+  owner: Matt (human)
+  command: gh pr merge <n> --squash --match-head-commit <sha>
+  method: squash
+
+verification:
+  checks_dir: .eng/checks         # One executable check per behaviour. Exit 0 = behaviour present.
+  flake_runs: 3                   # maintain runs each check this many times; mixed results = FLAKY = fail.
+  stale_after_commits: 50
+  repeat_threshold: 2             # A mistake seen this often must become a rule or check.
+
+launch:                           # The repo owns its isolated local launch (pstack Launch/Doctor/Cleanup). The verify skill only CALLS these.
+  # eng sets ENG_RUN_ID, ENG_PORT (free port picked per run) and ENG_RUN_DIR (outside the repo) for each command.
+  up: sh scripts/launch.sh up         # start, return when ready, write $ENG_RUN_DIR/state.json {url, pids[], storage, evidence}
+  doctor: sh scripts/launch.sh doctor # read-only: exit 0 = this instance is worth driving
+  down: sh scripts/launch.sh down     # stop only the PIDs in state.json; keep $ENG_RUN_DIR/evidence
+  ready_timeout_s: 60
+  isolation:                      # The contract eng launch-check proves (two concurrent runs, then down).
+    ports: per_run                # ENG_PORT, never a fixed port
+    storage: per_run              # own db/storage under ENG_RUN_DIR
+    run_id: ENG_RUN_ID
+    kill: own_pids_only           # never pkill/killall by name
+    evidence: outside_repo        # ENG_RUN_DIR/evidence survives down
+
+audits:
+  maintain_verification:          # Daily audit: pstack maintain-verification-skill, unchanged. eng renders .eng/ci/audit.yml; a human creates the schedule.
+    target: verify-app            # the repo's verify-<app> skill
+    schedule: daily
+    cron: "0 19 * * *"            # 06:00 AEDT
+    agent_command: "cursor-agent -p --force 'Follow {skill} exactly. Target: {target}. Report the outcome (clean / changed / blocked).'"
+
+laws:
+  enabled: true
+  dir: laws
+  laws_file: LAWS.bend            # Human-owned. Any change needs `eng laws approve <who> <note>` (hash recorded in approval_file).
+  proof_file: PROOF.bend          # Agent-owned. `bend PROOF.bend` must print ALL PROOFS CHECK.
+  bend_version: 2.0.36            # Exact; `bend version` must match (pi-fabric pins the same).
+  approval_file: .eng/laws-approval.json
+  kernels:                        # pi-fabric pattern: the app executes JS compiled from Bend; checked in, rebuilt and byte-compared by `eng laws`.
+    - { source: laws/cart.bend, out: src/generated/cart-kernel.mjs }
+  manifest: src/generated/bend-manifest.json   # sha256 of every .bend input and every generated output.
+  parity: vp test run src/cart.parity.test.ts # prism pattern: TS reference vs Bend kernel, random inputs; skip = fail.
+  mutations:                      # pi-fabric pattern: each planted bug must break the proofs, or the laws are too weak.
+    - { name: discount ignored, file: cart.bend, from: "  sub(subtotal, discount)", to: "  subtotal" }
+    - { name: discount applied twice, file: cart.bend, from: "  sub(subtotal, discount)", to: "  sub(sub(subtotal, discount), discount)" }
+    - { name: off by one cent, file: cart.bend, from: "  Nat.sub(a, b)", to: "  Nat.sub(a, 1n+b)" }
+
+e2e:
+  provider: e2e                   # tester-army/e2e: open source (Apache-2.0), Playwright-based, runs locally/CI, no TesterArmy account.
+  version: 0.19.0                 # Pre-1.0: pinned exactly; eng e2e fails on a caret range.
+  web_version: 0.14.0             # @e2e-dev/web (pins playwright-core 1.63.0).
+  model: none                     # none = exact locators only, no key. Else an AI SDK model in e2e.config.ts agents, e.g. ollama('qwen3:4b') via ollama-ai-provider-v2 (local).
+  node_bin: /workspace/eng-standard/.tools/node24/bin   # e2e CLI needs Node >=24.8 (or ^22.22.3); box default is Node 20.
+  evidence_dir: .eng/evidence     # Video, screenshots, trace.md, junit.xml land in <evidence_dir>/<sha>/e2e/.
+
+flags:
+  file: src/flags.ts              # New flags must be false.
+db:
+  migrations: "migrations/**"
+  additive_only: true
+
+constraints:
+  rules:
+    - id: no-focused-tests
+      paths: ["**/*.test.ts"]
+      pattern: "\\b(it|test|describe)\\.only\\("
+      message: "Focused test hides the rest of the suite. Remove .only."
+      proven_by: { incident: "sandbox: test.only committed", fixture: .eng/rule-proofs/no-focused-tests }
+
+gates:
+  skipped_is_failed: true         # Schema constant.
+  required: [drift, stack, lint, fallow, rules, typecheck, test, launch, verify, verdict, laws, conform, e2e]

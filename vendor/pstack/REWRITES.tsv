@@ -1,0 +1,7 @@
+# from<TAB>to. Applied in order to every pstack file eng init installs. The vendored copy stays byte-identical to upstream.
+# {skills_dir} = agents.skills_dir from eng.config.yml (.agents/skills). Only Cursor-specific PATHS are rewritten; tool names (Task, AskQuestion, subagent_type) are mapped in AGENTS.md instead.
+~/.cursor/rules/pstack-models.mdc	.eng/pstack-models.md
+~/.cursor/skills/	~/.agents/skills/
+.cursor/automations/benny/	.eng/automations/benny/
+.cursor/benny/	.eng/benny/
+.cursor/skills/	{skills_dir}/

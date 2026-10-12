@@ -1,0 +1,31 @@
+{
+  "name": "@slayteksystems/eng-standard",
+  "version": "0.1.0",
+  "description": "",
+  "directories": {
+    "lib": "lib"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "yaml": "^2.9.1"
+  },
+  "bin": {
+    "eng": "bin/eng.mjs"
+  },
+  "type": "module",
+  "private": true,
+  "files": [
+    "bin",
+    "lib",
+    "templates",
+    "skills",
+    "vendor",
+    "fixtures",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
