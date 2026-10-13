@@ -96,6 +96,7 @@ function init() {
   sync();
   sh('git config core.hooksPath .githooks');
   console.log('  git config core.hooksPath .githooks');
+  mergeQueueWarn(cfg);
   if (!cfg.launch) { console.log(`  GAP 1: ${NO_LAUNCH}.\n  Do not create the verify-<app> skill yet: it may only call launch, never build infra. Add launch: to eng.config.yml (up/doctor/down) in the codebase, then run eng launch-check.`); return console.log('eng init: done, verify-skill creation STOPPED on gap 1 (no isolated launch).'); }
   console.log('eng init: done. Next: run create-verification-skill to make the repo verify-<app> skill, then start tasks with poteto-mode.');
 }
@@ -124,6 +125,15 @@ const FRAMEWORKS = ['react', 'next', 'vue', 'nuxt', 'svelte', '@sveltejs/kit', '
   'vitest', 'jest', 'mocha', 'webpack', 'esbuild', 'eslint', 'prettier', 'oxlint', 'biome', '@biomejs/biome', 'zod', 'lodash', 'rxjs', 'tailwindcss'];
 const LOCKS = { 'bun.lock': 'bun', 'bun.lockb': 'bun', 'package-lock.json': 'npm', 'pnpm-lock.yaml': 'pnpm', 'yarn.lock': 'yarn', 'Cargo.lock': 'cargo' };
 
+// Merge queue needs CI that runs on merge_group. Warn only (CI may live outside .github, e.g. Buildkite).
+function mergeQueueWarn(cfg) {
+  const q = cfg.ship?.merge_queue; if (!q) return;
+  const trig = q.ci_trigger || 'merge_group', dir = path.join(ROOT, '.github/workflows');
+  const wf = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => /\.ya?ml$/.test(f)) : [];
+  if (!wf.length) return console.warn(`  WARN merge queue: no .github/workflows found; make sure your CI (e.g. Buildkite merge-queue builds) runs on ${trig}.`);
+  if (!wf.some(f => new RegExp(`\\b${trig}\\b`).test(fs.readFileSync(path.join(dir, f), 'utf8')))) console.warn(`  WARN merge queue: no workflow in .github/workflows triggers on ${trig}; queued PRs will never get checks. Add \`on: ${trig}:\`.`);
+}
+
 function stackCheck() {
   const cfg = loadConfig(), s = cfg.stack;
   const exc = (kind, name) => (s.exceptions || []).some(e => e.kind === kind && e.name === name);
@@ -139,6 +149,7 @@ function stackCheck() {
   const pm = String(s.defaults.package_manager.use).trim().split(/\s+/)[0].toLowerCase(); // first word names the PM ("bun via vp install ...")
   for (const f of files) { const k = LOCKS[path.basename(f)]; if (k && k !== pm && !exc('package_manager', k)) bad.push(`lockfile ${f} (${k}); package manager is ${pm}`); }
   if (bad.length) die(`stack-check: off-stack additions:\n  ${bad.join('\n  ')}\n  Fix: remove it, or add stack.exceptions: [{kind, name, reason}] to eng.config.yml (Matt approves).`);
+  mergeQueueWarn(cfg);
   console.log(`eng stack-check: PASS (languages: ${[...langs].join(', ')})`);
 }
 

@@ -71,10 +71,26 @@ fallow:                           # JS/TS repos. Config lives in .fallowrc.json 
   mode: greenfield                # greenfield = whole repo clean (bare `fallow`). brownfield = new findings only vs baselines.
   baselines_dir: fallow-baselines # brownfield: `eng fallow --save-baseline` on main, commit, refresh per release (never per merge). Keep .fallow/ (cache) gitignored.
 
-merge:                            # Per repo. There is no global merge rule.
-  owner: Matt (human)
-  command: gh pr merge <n> --squash --match-head-commit <sha>
+merge:                            # Per repo. There is no global merge rule. Only ship.manager runs this.
+  owner: shipping manager (ship.manager)
+  command: gh pr merge <n> --squash --match-head-commit <sha>   # with a merge queue this enqueues the PR
   method: squash
+
+ship:                             # Shipping model (approved by Matt, 13 Oct 2026).
+  manager: lead agent             # One per repo. Never authors code. Only actor that orders, queues, merges and reverts.
+  manager_also: [releases, deploys]   # optional extra duties; [] if a human or another job owns them
+  author: merge-ready only        # The author agent gets its PR to merge-ready and never merges.
+  verifier: fresh-context agent   # Verdict bound to the head SHA / patch-id (eng verdict).
+  merge_queue:
+    provider: github              # GitHub merge queue. Graphite only if stacks dominate later.
+    max_group_size: 2             # keep small so a failing group is cheap to bisect
+    ci_trigger: merge_group       # CI must run on merge_group events; eng init/stack-check warn if it is missing
+    not_required: [bugbot]        # never make these required checks
+  high_risk:                      # Needs a human sign-off before queueing. Everything else queues once verified, new behaviour behind a default-off flag.
+    label: risk:high
+    reasons: [auth, payments, schema/migrations, public APIs, CI config, prototype going to prod]
+    paths: ["**/auth/**", "**/payments/**", "migrations/**", "**/schema.*", "**/api/**", ".github/workflows/**", ".buildkite/**", ".eng/ci/**"]
+  split_bot_when: "concurrent PR load or release work outgrows the lead agent"
 
 verification:
   checks_dir: .eng/checks         # One executable check per behaviour. Exit 0 = behaviour present.

@@ -39,7 +39,7 @@ After merging `<BASE>` in, the head is a new SHA: run `eng verify maintain` to r
 - **Who merges:** <MERGE_OWNER> (set per repo in `eng.config.yml` → `merge`; there is no global rule).
 - **Exact command:** `<MERGE_COMMAND>`.
 - **Merge method:** <MERGE_METHOD>.
-
+<SHIP>
 ## 4. Flags and database
 
 - Flags file: `<FLAGS>`. New flags are added as `false`; `eng lint` rule `flags-default-off` enforces it.
