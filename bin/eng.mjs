@@ -9,12 +9,15 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { renderAll, expandSkills, routerText, ROUTE_RULE } from '../lib/render.mjs';
 import { glob2re, decide, validatePolicy } from '../lib/e2e-policy.mjs';
+import { engTmp, staleTmpDirs, parseWorktrees, classifyWorktree, TMP_RULE, tmpBase } from '../lib/hygiene.mjs';
 
 const PKG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = process.cwd();
 const NOTES = 'eng-verify';
 const sh = (c, o = {}) => execSync(c, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...o }).trim();
-const run = (c, cwd = ROOT) => spawnSync('bash', ['-c', c], { cwd, encoding: 'utf8' });
+let RUN_ENV; // set by withTmp: every child of eng gate / eng e2e gets ENG_TMP and TMPDIR pointing at the per-run dir
+const run = (c, cwd = ROOT) => spawnSync('bash', ['-c', c], { cwd, encoding: 'utf8', ...(RUN_ENV ? { env: RUN_ENV } : {}) });
+function withTmp(cfg) { const t = engTmp(cfg.project.name); RUN_ENV = t.env; if (t.owned) console.log(`  ENG_TMP=${t.dir} (removed on exit)`); return t; }
 const sha256 = s => crypto.createHash('sha256').update(s).digest('hex');
 const die = (m) => { console.error(`eng: FAIL ${m}`); process.exit(1); };
 
@@ -186,6 +189,7 @@ function builtinRules(cfg) {
     message: 'Destructive DB change. Migrations are additive only; use expand/contract over two deploys (add new → move code → backfill → stop reading old → remove later).', proven_by: { incident: 'builtin', fixture: `${PKG}/fixtures/db-additive-only` } });
   if (cfg.flags?.file) r.push({ id: 'flags-default-off', paths: cfg.flags.file, pattern: ':\\s*true\\b', flags: '',
     message: 'Flags ship off by default. Set it to false; turn it on as a separate release step.', proven_by: { incident: 'builtin', fixture: `${PKG}/fixtures/flags-default-off` } });
+  if (cfg.hygiene?.tmp_lint !== false) r.push({ ...TMP_RULE, proven_by: { incident: 'builtin', fixture: `${PKG}/fixtures/test-bare-tmpdir` } });
   return [...r, ...(cfg.constraints?.rules || [])];
 }
 function lintFiles(rule, files, base) {
@@ -582,6 +586,7 @@ function e2eRequired() {
 // ---------- e2e (tester-army/e2e, open source, Playwright; no TesterArmy account) ----------
 function e2e() {
   const cfg = loadConfig(), e = cfg.e2e, H = head();
+  const tmp = withTmp(cfg);
   if (process.argv.includes('--if-required')) {
     const d = e2eDecision(cfg);
     if (!d.required) return console.log(`eng e2e: NOT REQUIRED by e2e.policy (${d.reason}); full e2e runs on ${cfg.project.default_branch} after merge`);
@@ -599,7 +604,7 @@ function e2e() {
   const out = path.join(e.evidence_dir, H, 'e2e');
   fs.rmSync(path.join(ROOT, out), { recursive: true, force: true });
   // CI=1: cache read-only (never records); --strict-cache: a stale recording fails instead of handing off to a live agent.
-  const env = { ...process.env, DO_NOT_TRACK: '1', E2E_TELEMETRY_DISABLED: '1', CI: '1', PATH: `${e.node_bin ? e.node_bin + ':' : ''}${process.env.PATH}` };
+  const env = { ...tmp.env, DO_NOT_TRACK: '1', E2E_TELEMETRY_DISABLED: '1', CI: '1', PATH: `${e.node_bin ? e.node_bin + ':' : ''}${process.env.PATH}` };
   const cmd = `npx --no-install e2e run --strict-cache --video on --reporter list,junit --output ${out}`;
   console.log(`  $ DO_NOT_TRACK=1 E2E_TELEMETRY_DISABLED=1 CI=1 ${cmd}`);
   const r = spawnSync('bash', ['-c', cmd], { cwd: ROOT, encoding: 'utf8', env });
@@ -706,7 +711,7 @@ function verdictCheck() {
 // greenfield: the whole repo must be clean (bare `fallow`: dead code + architecture + dupes + health).
 // brownfield: fail only on findings not in the committed baselines (fallow adoption guide, option B).
 function fallowGate() {
-  const f = loadConfig().fallow;
+  const cfg = loadConfig(), f = cfg.fallow; withTmp(cfg);
   if (!f) die('fallow: no fallow: section in eng.config.yml (JS/TS repos must run it)');
   const bin = path.join(ROOT, 'node_modules/.bin/fallow');
   if (!fs.existsSync(bin)) die(`fallow: not installed. Run: vp add -D -E fallow@${f.version}`);
@@ -731,11 +736,13 @@ function fallowGate() {
 }
 
 function gate() {
-  const cfg = loadConfig(); const res = [];
+  const cfg = loadConfig(); const res = []; withTmp(cfg);
   const map = { verdict: 'verdict check', conform: 'conform', drift: 'drift-check', stack: 'stack-check', lint: 'lint', rules: 'rules prove', verify: 'verify maintain', laws: 'laws', e2e: 'e2e --if-required', launch: 'launch-check', fallow: 'fallow' };
   for (const g of cfg.gates.required) {
     const c = map[g] ? `node ${path.join(PKG, 'bin/eng.mjs')} ${map[g]}` : cfg.project.commands[g];
     const r = c ? run(c) : { status: null, stdout: '', stderr: 'no command' };
+    const sig = { SIGINT: 2, SIGTERM: 15, SIGHUP: 1 }[r.signal]; // interrupted (Ctrl-C / kill of the group): stop now; the exit trap removes ENG_TMP
+    if (sig) { console.error(`eng gate: interrupted by ${r.signal} during ${g}`); process.exit(128 + sig); }
     const lines = (r.stdout + r.stderr).trim().split('\n').map(x => x.trim()).filter(x => x && !/^[⎯─-]+(\[\d+\/\d+\])?⎯*$/.test(x));
     const why = r.status === 0 ? lines.at(-1) : lines.find(x => /AssertionError|Error:|FAIL |✗|×|\bfailed\b|eng: FAIL/.test(x)) ?? lines.at(-1);
     res.push([g, r.status === 0 ? 'pass' : r.status === null ? 'SKIPPED=FAIL' : 'FAIL', why]);
@@ -745,6 +752,39 @@ function gate() {
   if (logged.length) console.log(`  logged to .eng/mistakes.jsonl: ${logged.join(', ')} (eng retro reads it)`);
   if (res.some(r => r[1] !== 'pass')) die('gate: not all required gates passed');
   console.log('eng gate: PASS');
+}
+// ---------- clean: disk hygiene. Dry-run by default; --apply acts. Never deletes unpushed or dirty work. ----------
+function cleanCmd() {
+  const cfg = loadConfig(), apply = a.includes('--apply'), hours = Number(arg('--older-than') ?? cfg.hygiene?.tmp_max_age_hours ?? 6);
+  if (!(hours >= 0)) die('clean: --older-than <hours> must be a number >= 0');
+  const verb = apply ? 'removed' : 'would remove';
+  if (!a.includes('--worktrees') || a.includes('--tmp')) {
+    const dirs = staleTmpDirs(cfg.project.name, hours);
+    for (const d of dirs) {
+      if (!d.stale) { console.log(`  keep   ${d.path} (${d.why})`); continue; }
+      if (apply) fs.rmSync(d.path, { recursive: true, force: true });
+      console.log(`  ${verb.padEnd(12)} ${d.path} (${d.ageH.toFixed(1)}h old)`);
+    }
+    console.log(`eng clean: ${dirs.filter(d => d.stale).length} stale eng temp dir(s) for ${cfg.project.name} in ${tmpBase()} older than ${hours}h${apply ? ' removed' : ' (dry run; --apply to delete)'}`);
+  }
+  if (!a.includes('--worktrees')) return;
+  const git = args => spawnSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+  if (!a.includes('--no-fetch')) { const f = git(['fetch', '--prune', '--quiet']); if (f.status !== 0) console.log(`  WARN git fetch --prune failed (${f.stderr.trim().split('\n')[0]}); using cached remote refs`); }
+  const base = baseRef(cfg), wts = parseWorktrees(git(['worktree', 'list', '--porcelain']).stdout);
+  const mainPath = wts[0]?.path, cwdTop = path.resolve(sh('git rev-parse --show-toplevel'));
+  const rows = wts.map(w => ({ w, c: classifyWorktree(w, { git, base, mainPath, cwdTop }) })).filter(r => !r.c.skip);
+  let removed = 0; const reported = [];
+  for (const { w, c } of rows) {
+    const label = `${w.path} [${w.branch ?? 'detached ' + (w.head || '').slice(0, 8)}]`;
+    if (c.keep) { console.log(`  keep   ${label}: ${c.why}`); if (c.report) reported.push(`${label}: ${c.why}`); continue; }
+    if (apply) {
+      const r = c.prune ? git(['worktree', 'prune']) : git(['worktree', 'remove', w.path]); // no --force: git refuses anything dirty
+      if (r.status !== 0) { console.log(`  keep   ${label}: git worktree remove refused: ${r.stderr.trim()}`); reported.push(`${label}: remove refused`); continue; }
+    }
+    removed++; console.log(`  ${verb.padEnd(12)} ${label}: ${c.why}`);
+  }
+  if (reported.length) console.log(`  REPORT to the repo lead (never deleted):\n    ${reported.join('\n    ')}`);
+  console.log(`eng clean --worktrees: ${removed} worktree(s) ${apply ? 'removed' : 'removable (dry run; --apply to remove)'}, ${rows.length - removed} kept`);
 }
 function ciVerdict(ids) { // Buildkite: read each step outcome; anything but "passed" fails.
   const bad = ids.filter(id => { const r = run(`buildkite-agent step get outcome --step ${id}`); return r.status !== 0 || r.stdout.trim() !== 'passed'; });
@@ -756,5 +796,5 @@ const [cmd, ...a] = process.argv.slice(2);
 const cmds = { verdict: () => a[0] === 'check' ? verdictCheck() : verdictRecord(a[0]), init, sync, 'drift-check': driftCheck, 'stack-check': stackCheck, lint, gate, e2e, conform, 'find-laws': findLaws, laws: () => a[0] === '--write' ? lawsWrite() : a[0] === 'approve' ? lawsApprove(a[1], a.slice(2).join(' ')) : laws(),
   rules: () => a[0] === 'prove' ? rulesProve() : die('usage: eng rules prove'),
   verify: () => a[0] === 'create' ? verifyCreate(a[1]) : a[0] === 'maintain' ? verifyMaintain() : die('usage: eng verify create <id> | maintain'),
-  mistake: () => mistake(a[0], a.slice(1).join(' ')), retro, ship: () => a[0] === 'next' ? shipNext() : die('usage: eng ship next'), 'launch-check': launchCheck, fallow: fallowGate, 'ci-verdict': () => ciVerdict(a), 'e2e-required': e2eRequired };
-(cmds[cmd] || (() => { console.log('eng init | sync | drift-check | stack-check | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | ship next | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e [--if-required] | e2e-required [--event pr|main|nightly] [--base <ref>] [--files a,b] [--labels a,b] [--json] [--exit-code] | gate'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();
+  mistake: () => mistake(a[0], a.slice(1).join(' ')), retro, ship: () => a[0] === 'next' ? shipNext() : die('usage: eng ship next'), 'launch-check': launchCheck, fallow: fallowGate, 'ci-verdict': () => ciVerdict(a), 'e2e-required': e2eRequired, clean: cleanCmd };
+(cmds[cmd] || (() => { console.log('eng init | sync | drift-check | stack-check | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | ship next | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e [--if-required] | e2e-required [--event pr|main|nightly] [--base <ref>] [--files a,b] [--labels a,b] [--json] [--exit-code] | gate | clean [--older-than <h>] [--worktrees [--tmp]] [--no-fetch] [--apply]'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();

@@ -1,4 +1,4 @@
-import { test, before } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,12 +13,14 @@ const eng = (...a) => spawnSync(process.execPath, [ENG, ...a], { cwd: dir, encod
 const git = c => execSync(`git ${c}`, { cwd: dir, stdio: 'pipe', encoding: 'utf8' });
 
 before(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-cli-'));
+  dir = fs.mkdtempSync(path.join(process.env.ENG_TMP ?? os.tmpdir(), 'eng-cli-'));
   git('init -q -b main'); git('config user.email t@t'); git('config user.name t');
   fs.copyFileSync(TPL, path.join(dir, 'eng.config.yml'));
   fs.writeFileSync(path.join(dir, 'README.md'), 'x\n');
   git('add -A'); git('commit -qm base'); git('checkout -qb feat');
 });
+
+after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 test('e2e-required: docs-only diff is not required, exit 10 with --exit-code', () => {
   fs.writeFileSync(path.join(dir, 'README.md'), 'y\n'); git('commit -qam docs');
