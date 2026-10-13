@@ -13,7 +13,9 @@ One file, `eng.config.yml`, drives everything. Agent-agnostic: plain SKILL.md fi
 | `eng verify maintain` | re-run all checks N times on HEAD (flaky), staleness, patch-id vs last proof, repeat-mistake → rule |
 | `eng mistake <key> <what>` | log a recurring mistake |
 | `eng laws` | `bend PROOF.bend` (Bend2) as a gate |
-| `eng e2e` | `ta ci` (TesterArmy) with evidence dir per SHA; BLOCKED = fail |
+| `eng e2e [--if-required]` | `e2e run` (tester-army/e2e) with evidence dir per SHA; BLOCKED = fail. `--if-required` (used by gate and CI) passes as NOT REQUIRED when `e2e.policy` says the diff does not need e2e |
+| `eng e2e-required` | prints whether e2e is required for this diff and why (`--event pr\|main\|nightly`, `--base`, `--files`, `--labels`, `--json`, `--exit-code` = 10 when not required). PRs are path-based; main after merge and nightly always run the full suite |
 | `eng gate` | every `gates.required`; skipped/blocked = failed |
+| `npm test` | this package's own tests (`node --test`) |
 
 Vendored upstream skills (verbatim, path-rewritten `.cursor/skills/` → `.agents/skills/`): see `vendor/PINS.txt`. Licenses: MIT (vendor/*/LICENSE).

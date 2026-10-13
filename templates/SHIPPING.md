@@ -36,6 +36,9 @@ Name the skill. A lead that spawns or steers a coding thread (e.g. T3) names the
 `<GATE>` runs every required gate in `eng.config.yml` (`gates.required`). A skipped, missing or blocked gate is a failure.
 After merging `<BASE>` in, the head is a new SHA: run `eng verify maintain` to re-verify on it.
 
+**E2E is path-based on PRs** (`eng.config.yml` → `e2e.policy`). A PR runs e2e when it touches app code, routes, DB schema/migrations, deps/build config or CI, or is labelled `risk:high`. Docs-only, config-only (non-CI) and test-only PRs skip it: the `e2e` gate passes with `NOT REQUIRED` and the reason. Run `eng e2e-required` to see the decision and which file triggered it. A file no list matches runs e2e.
+**`<BASE>` always runs the full e2e after every merge** (and nightly where enabled). That run is the backstop for what PRs skipped. A red e2e on `<BASE>` means the shipping manager reverts the merged PR immediately, before anything else merges; no fix-forward on `<BASE>` (motus #285, 13 Oct 2026).
+
 ## 3. Merge
 
 - **Who merges:** <MERGE_OWNER> (set per repo in `eng.config.yml` → `merge`; there is no global rule).

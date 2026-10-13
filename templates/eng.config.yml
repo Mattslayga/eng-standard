@@ -139,6 +139,24 @@ e2e:
   model: none                     # none = exact locators only, no key. Else an AI SDK model in e2e.config.ts agents, e.g. ollama('qwen3:4b') via ollama-ai-provider-v2 (local).
   node_bin: /workspace/eng-standard/.tools/node24/bin   # e2e CLI needs Node >=24.8 (or ^22.22.3); box default is Node 20.
   evidence_dir: .eng/evidence     # Video, screenshots, trace.md, junit.xml land in <evidence_dir>/<sha>/e2e/.
+  policy:                         # When e2e runs (approved by Matt, 13 Oct 2026). `eng e2e-required` prints the decision for a diff.
+    mode: path_based              # path_based: PRs run e2e only when needed (below). always: every PR runs it (the old rule).
+    labels: [risk:high]           # a PR with any of these labels always runs e2e
+    unmatched: run                # a changed file no list below matches: run (safe default) or skip
+    run_on:                       # PR touches any of these -> e2e required. Lists replace the default for that key; omit a key to keep its default.
+      e2e: ["**/*.e2e.ts", "e2e.config.ts", "e2e/**", "tests/e2e/**"]          # the flows themselves
+      app: ["src/**", "app/**", "convex/**", "components/**", "lib/**", "public/**", "index.html"]
+      routes: ["**/routes/**", "**/pages/**", "**/api/**", "**/router.*", "**/*.routes.*"]
+      db: ["migrations/**", "**/migrations/**", "**/schema.*", "**/*.sql", "prisma/**", "drizzle/**"]
+      build: ["package.json", "bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "vite.config.*", "tsconfig*.json", "Dockerfile"]   # deps and build config change what ships
+      ci: [".github/workflows/**", ".buildkite/**", ".eng/ci/**", "eng.config.yml", "e2e.config.*"]   # CI config is never "config-only"
+    skip_on:                      # PR whose files ALL land here -> e2e not required. tests/docs win over run_on (src/x.test.ts is test-only).
+      tests: ["**/*.test.*", "**/*.spec.*", "**/__tests__/**", "test/**", "tests/**", ".eng/checks/**", ".eng/rule-proofs/**"]
+      docs: ["**/*.md", "**/*.mdx", "docs/**", "**/LICENSE*", ".agents/**", ".claude/**"]
+      config: ["**/*.json", "**/*.yml", "**/*.yaml", "**/*.toml", "**/.*rc", "**/.*rc.*", "**/.gitignore", "**/.editorconfig", ".githooks/**", "fallow-baselines/**", "**/.env.example"]
+    main:                         # The backstop. Always full e2e on main; a red run there = shipping manager reverts at once (SHIPPING.md).
+      on_merge: full              # schema constant: full e2e after every merge to main
+      nightly: { enabled: false, cron: "0 16 * * *" }   # optional; true renders .eng/ci/e2e-nightly.yml (03:00 AEDT). Create the schedule by hand.
 
 flags:
   file: src/flags.ts              # New flags must be false.

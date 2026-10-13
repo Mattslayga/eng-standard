@@ -8,6 +8,7 @@ import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { renderAll, expandSkills, routerText, ROUTE_RULE } from '../lib/render.mjs';
+import { glob2re, decide, validatePolicy } from '../lib/e2e-policy.mjs';
 
 const PKG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = process.cwd();
@@ -34,6 +35,7 @@ function validate(c) {
   if (c.gates?.skipped_is_failed !== true) errs.push('gates.skipped_is_failed must be true');
   for (const r of c.constraints?.rules || []) if (!r.proven_by?.incident || !r.proven_by?.fixture) errs.push(`rule ${r.id} needs proven_by.incident and proven_by.fixture`);
   for (const e of c.stack?.exceptions || []) if (!e.reason) errs.push(`stack exception ${e.name} needs a reason`);
+  errs.push(...validatePolicy(c.e2e));
   if (errs.length) die('config invalid:\n  ' + errs.join('\n  '));
 }
 
@@ -186,7 +188,6 @@ function builtinRules(cfg) {
     message: 'Flags ship off by default. Set it to false; turn it on as a separate release step.', proven_by: { incident: 'builtin', fixture: `${PKG}/fixtures/flags-default-off` } });
   return [...r, ...(cfg.constraints?.rules || [])];
 }
-const glob2re = g => new RegExp('^' + g.replaceAll('**/', '\u0000').split('**').map(p => p.split('*').map(x => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('[^/]*')).join('.*').replaceAll('\u0000', '(?:.*/)?') + '$');
 function lintFiles(rule, files, base) {
   const re = new RegExp(rule.pattern, rule.flags ?? ''), pre = [].concat(rule.paths).map(glob2re), ex = [].concat(rule.exclude ?? []).map(glob2re), hits = [];
   for (const f of files) {
@@ -539,9 +540,53 @@ function laws() {
   console.log('eng laws: PASS');
 }
 
+// ---------- e2e policy: is e2e required for this change? (lib/e2e-policy.mjs; eng.config.yml → e2e.policy) ----------
+// PRs run e2e when they touch app code, routes, DB schema/migrations, build/deps or CI, or carry a risk label.
+// main after every merge and nightly always run the full suite. A red e2e on main = immediate revert (SHIPPING.md).
+const envList = v => (v || '').split(',').map(x => x.trim()).filter(Boolean);
+function e2eEvent(cfg) {
+  const ev = arg('--event') || process.env.ENG_E2E_EVENT; if (ev) return ev;
+  const E = process.env, main = cfg.project.default_branch;
+  if (E.BUILDKITE) return E.BUILDKITE_SOURCE === 'schedule' ? 'nightly' : E.BUILDKITE_PULL_REQUEST && E.BUILDKITE_PULL_REQUEST !== 'false' ? 'pr' : E.BUILDKITE_BRANCH === main ? 'main' : 'pr';
+  if (E.GITHUB_ACTIONS) return E.GITHUB_EVENT_NAME === 'schedule' ? 'nightly' : E.GITHUB_EVENT_NAME === 'push' && E.GITHUB_REF === `refs/heads/${main}` ? 'main' : 'pr';
+  try { return sh('git rev-parse --abbrev-ref HEAD') === main ? 'main' : 'pr'; } catch { return 'pr'; }
+}
+function e2eLabels() {
+  const l = arg('--labels') ?? process.env.ENG_PR_LABELS ?? process.env.BUILDKITE_PULL_REQUEST_LABELS;
+  if (l != null) return envList(l);
+  try { return JSON.parse(execSync('gh pr view --json labels', { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 })).labels.map(x => x.name); } catch { return []; }
+}
+function e2eFiles(cfg) {
+  const f = arg('--files'); if (f != null) return envList(f);
+  const pb = process.env.BUILDKITE_PULL_REQUEST_BASE_BRANCH || process.env.GITHUB_BASE_REF;
+  const base = arg('--base') || (pb ? `origin/${pb}` : baseRef(cfg));
+  const mb = sh(`git merge-base ${base} HEAD`);  // throws if unknown: caller treats that as required
+  const committed = sh(`git diff --name-only ${mb} HEAD`).split('\n');
+  const local = sh('git status --porcelain --untracked-files=all -- . ":(exclude).eng/mistakes.jsonl"').split('\n').map(x => x.slice(3).split(' -> ').at(-1));
+  return [...new Set([...committed, ...local].filter(Boolean))].sort();
+}
+function e2eDecision(cfg) {
+  const event = e2eEvent(cfg);
+  if (event !== 'pr') return decide(cfg.e2e, { event });
+  let files; try { files = e2eFiles(cfg); } catch (err) { return { required: true, reason: `cannot compute the diff (${String(err.message).split('\n')[0]}); running e2e to be safe`, files: [] }; }
+  return decide(cfg.e2e, { files, labels: e2eLabels(), event });
+}
+function e2eRequired() {
+  const cfg = loadConfig(), d = e2eDecision(cfg);
+  if (process.argv.includes('--json')) return console.log(JSON.stringify(d, null, 2));
+  for (const c of d.files) console.log(`  ${c.kind === 'run' ? 'RUN ' : 'skip'} ${c.cat.padEnd(9)} ${c.file}`);
+  console.log(`eng e2e-required: ${d.required ? 'REQUIRED' : 'NOT REQUIRED'} (${d.reason})`);
+  if (process.argv.includes('--exit-code') && !d.required) process.exit(10);
+}
+
 // ---------- e2e (tester-army/e2e, open source, Playwright; no TesterArmy account) ----------
 function e2e() {
   const cfg = loadConfig(), e = cfg.e2e, H = head();
+  if (process.argv.includes('--if-required')) {
+    const d = e2eDecision(cfg);
+    if (!d.required) return console.log(`eng e2e: NOT REQUIRED by e2e.policy (${d.reason}); full e2e runs on ${cfg.project.default_branch} after merge`);
+    console.log(`  e2e required: ${d.reason}`);
+  }
   const pj = JSON.parse(readOr('package.json', '{}')), deps = { ...pj.dependencies, ...pj.devDependencies };
   const pins = { e2e: e.version, '@e2e-dev/web': e.web_version };
   const badPins = Object.entries(pins).filter(([n, v]) => deps[n] !== v).map(([n, v]) => `${n} must be pinned exactly to ${v} in package.json (found ${deps[n] ?? 'missing'})`);
@@ -687,7 +732,7 @@ function fallowGate() {
 
 function gate() {
   const cfg = loadConfig(); const res = [];
-  const map = { verdict: 'verdict check', conform: 'conform', drift: 'drift-check', stack: 'stack-check', lint: 'lint', rules: 'rules prove', verify: 'verify maintain', laws: 'laws', e2e: 'e2e', launch: 'launch-check', fallow: 'fallow' };
+  const map = { verdict: 'verdict check', conform: 'conform', drift: 'drift-check', stack: 'stack-check', lint: 'lint', rules: 'rules prove', verify: 'verify maintain', laws: 'laws', e2e: 'e2e --if-required', launch: 'launch-check', fallow: 'fallow' };
   for (const g of cfg.gates.required) {
     const c = map[g] ? `node ${path.join(PKG, 'bin/eng.mjs')} ${map[g]}` : cfg.project.commands[g];
     const r = c ? run(c) : { status: null, stdout: '', stderr: 'no command' };
@@ -711,5 +756,5 @@ const [cmd, ...a] = process.argv.slice(2);
 const cmds = { verdict: () => a[0] === 'check' ? verdictCheck() : verdictRecord(a[0]), init, sync, 'drift-check': driftCheck, 'stack-check': stackCheck, lint, gate, e2e, conform, 'find-laws': findLaws, laws: () => a[0] === '--write' ? lawsWrite() : a[0] === 'approve' ? lawsApprove(a[1], a.slice(2).join(' ')) : laws(),
   rules: () => a[0] === 'prove' ? rulesProve() : die('usage: eng rules prove'),
   verify: () => a[0] === 'create' ? verifyCreate(a[1]) : a[0] === 'maintain' ? verifyMaintain() : die('usage: eng verify create <id> | maintain'),
-  mistake: () => mistake(a[0], a.slice(1).join(' ')), retro, ship: () => a[0] === 'next' ? shipNext() : die('usage: eng ship next'), 'launch-check': launchCheck, fallow: fallowGate, 'ci-verdict': () => ciVerdict(a) };
-(cmds[cmd] || (() => { console.log('eng init | sync | drift-check | stack-check | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | ship next | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e | gate'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();
+  mistake: () => mistake(a[0], a.slice(1).join(' ')), retro, ship: () => a[0] === 'next' ? shipNext() : die('usage: eng ship next'), 'launch-check': launchCheck, fallow: fallowGate, 'ci-verdict': () => ciVerdict(a), 'e2e-required': e2eRequired };
+(cmds[cmd] || (() => { console.log('eng init | sync | drift-check | stack-check | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | ship next | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e [--if-required] | e2e-required [--event pr|main|nightly] [--base <ref>] [--files a,b] [--labels a,b] [--json] [--exit-code] | gate'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();
