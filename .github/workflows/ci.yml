@@ -3,6 +3,10 @@ on:
   pull_request:
   push:
     branches: [main]
+# One run per workflow+ref. Superseded PR runs are cancelled; main runs never are (post-merge backstop).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     runs-on: ubuntu-latest

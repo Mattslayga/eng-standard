@@ -101,3 +101,55 @@ test('after eng sync, eng lint and drift-check both pass (vendored test files ar
   const bad = eng('lint'); fs.rmSync(path.join(dir, 'own.test.mjs'));
   assert.notEqual(bad.status, 0); assert.match(bad.stderr + bad.stdout, /own\.test\.mjs:1: \[test-bare-tmpdir\]/);
 });
+
+test('e2e --flake-check classifies runs: blocking 0, quarantine 11, failing 1', () => {
+  let r = eng('e2e', '--flake-check', '--results', 'pass,pass,pass');
+  assert.equal(r.status, 0, r.stdout + r.stderr); assert.match(r.stdout, /BLOCKING/);
+  r = eng('e2e', '--flake-check', '--results', 'pass,fail,pass');
+  assert.equal(r.status, 11); assert.match(r.stdout, /QUARANTINE .*report-only and open an issue/);
+  r = eng('e2e', '--flake-check', '--results', 'fail,fail,fail');
+  assert.equal(r.status, 1); assert.match(r.stdout, /FAILING/);
+  r = eng('e2e', '--flake-check', '--results', 'pass,pass');
+  assert.equal(r.status, 1); assert.match(r.stdout, /INCOMPLETE/);
+});
+
+test('e2e.flake_runs is validated', () => {
+  const p = path.join(dir, 'eng.config.yml'), s = fs.readFileSync(p, 'utf8');
+  fs.writeFileSync(p, s.replace('  flake_runs: 3                   # A new', '  flake_runs: 1                   # A new'));
+  const r = eng('e2e', '--flake-check', '--results', 'pass');
+  fs.writeFileSync(p, s);
+  assert.equal(r.status, 1); assert.match(r.stderr, /flake_runs must be an integer >= 2/);
+});
+
+test('eng init advises non-strict required checks; SHIPPING.md and AGENTS.md carry it, the spawn template and CI hygiene', () => {
+  const r = eng('init'); assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Branch ruleset advice/);
+  assert.match(r.stdout, /Required checks are NOT strict/);
+  assert.match(r.stdout, /Strict up-to-date is not recommended/);
+  assert.match(r.stdout, /full run on `main` after every merge plus an immediate revert on red/);
+  assert.match(r.stdout, /carries over by patch-id/);
+  assert.match(r.stdout, /\/poteto-mode -> Shipping playbook: verify commit <sha>/);
+  const ship = fs.readFileSync(path.join(dir, 'SHIPPING.md'), 'utf8'), agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  for (const doc of [ship, agents]) {
+    assert.match(doc, /\/poteto-mode -> Shipping playbook: verify commit <sha> with verify-<app>, record eng verdict/);
+    assert.match(doc, /\| Babysit \| `playbooks\/babysit.md`/);
+    assert.match(doc, /`playbooks\/autopilot-full.md`/);
+    assert.match(doc, /`playbooks\/autopilot-stack.md`/);
+    assert.match(doc, /must also require `maintain-verification-skill`/);
+    assert.match(doc, /plain prose with normal spacing/);
+    assert.match(doc, /No duplicate dispatches/);
+    assert.match(doc, /cancel-in-progress/);
+  }
+  assert.match(ship, /Required checks are not strict/);
+  assert.match(ship, /must pass 3 consecutive runs/);
+  assert.doesNotMatch(ship, /<(SPAWN|RULESET|CI_HYGIENE|FLAKE_RUNS)>/);
+  assert.equal(eng('drift-check').status, 0);
+});
+
+test('spawn table names playbooks that exist in vendored poteto-mode', () => {
+  const pb = path.resolve(new URL('../vendor/pstack/skills/poteto-mode/playbooks', import.meta.url).pathname);
+  const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  const named = [...agents.matchAll(/playbooks\/([a-z-]+\.md)/g)].map(m => m[1]);
+  assert.ok(named.length >= 4);
+  for (const f of named) assert.ok(fs.existsSync(path.join(pb, f)), f);
+});
