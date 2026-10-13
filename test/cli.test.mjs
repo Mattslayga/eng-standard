@@ -91,3 +91,13 @@ test('nightly enabled renders the nightly pipeline', () => {
 test('--help lists e2e-required', () => {
   const r = eng('--help'); assert.equal(r.status, 0); assert.match(r.stdout, /e2e-required/);
 });
+
+test('after eng sync, eng lint and drift-check both pass (vendored test files are not repo-owned)', () => {
+  const s = eng('sync'); assert.equal(s.status, 0, s.stderr);
+  const l = eng('lint'); assert.equal(l.status, 0, l.stderr + l.stdout);
+  assert.equal(eng('drift-check').status, 0);
+  // a repo-owned test file with a bare tmpdir is still flagged
+  fs.writeFileSync(path.join(dir, 'own.test.mjs'), "const d = os.tmpdir();\n");
+  const bad = eng('lint'); fs.rmSync(path.join(dir, 'own.test.mjs'));
+  assert.notEqual(bad.status, 0); assert.match(bad.stderr + bad.stdout, /own\.test\.mjs:1: \[test-bare-tmpdir\]/);
+});
