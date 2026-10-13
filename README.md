@@ -15,6 +15,7 @@ One file, `eng.config.yml`, drives everything. Agent-agnostic: plain SKILL.md fi
 | `eng laws` | `bend PROOF.bend` (Bend2) as a gate |
 | `eng e2e [--if-required]` | `e2e run` (tester-army/e2e) with evidence dir per SHA; BLOCKED = fail. `--if-required` (used by gate and CI) passes as NOT REQUIRED when `e2e.policy` says the diff does not need e2e |
 | `eng e2e-required` | prints whether e2e is required for this diff and why (`--event pr\|main\|nightly`, `--base`, `--files`, `--labels`, `--json`, `--exit-code` = 10 when not required). PRs are path-based; main after merge and nightly always run the full suite |
+| `eng clean` | disk hygiene, dry run by default (`--apply` acts). Removes this repo's stale `$ENG_TMP` dirs (`eng-<repo>-*` older than `--older-than` hours, default 6, process gone). `--worktrees`: removes git worktrees whose branch is merged or deleted upstream AND fully pushed AND clean; reports the rest, never deletes them. `eng gate` / `eng e2e` run every child with `ENG_TMP`/`TMPDIR` set to a per-run dir removed on exit, failure or signal; lint rule `test-bare-tmpdir`; vitest globalSetup `.eng/test-tmp.mjs` |
 | `eng gate` | every `gates.required`; skipped/blocked = failed |
 | `npm test` | this package's own tests (`node --test`) |
 

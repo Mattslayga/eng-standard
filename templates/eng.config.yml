@@ -158,6 +158,10 @@ e2e:
       on_merge: full              # schema constant: full e2e after every merge to main
       nightly: { enabled: false, cron: "0 16 * * *" }   # optional; true renders .eng/ci/e2e-nightly.yml (03:00 AEDT). Create the schedule by hand.
 
+hygiene:                          # Disk hygiene (SHIPPING.md §5). eng gate / eng e2e always run with a per-run $ENG_TMP removed on exit.
+  tmp_lint: true                  # eng lint rule test-bare-tmpdir: test code may not write to bare os.tmpdir() or /tmp. false = off (say why).
+  tmp_max_age_hours: 6            # eng clean: eng-<repo>-* temp dirs older than this (and whose process is gone) are stale.
+
 flags:
   file: src/flags.ts              # New flags must be false.
 db:

@@ -50,6 +50,16 @@ After merging `<BASE>` in, the head is a new SHA: run `eng verify maintain` to r
 - Flags file: `<FLAGS>`. New flags are added as `false`; `eng lint` rule `flags-default-off` enforces it.
 - Migrations: `<MIGRATIONS>`. Additive only; `eng lint` rule `db-additive-only` rejects DROP / RENAME / destructive ALTER. Destructive change = expand/contract over two deploys.
 
-## 5. GAPS
+## 5. Disk hygiene (devbox disk hit 92%, 13 Oct 2026)
+
+The shared devbox filled at ~8 GB/hour: per-run test dirs in /tmp were never deleted (Motus vitest/e2e 2-4 GB per run, 44 GB in total; Core Edge fallow-coverage/cli-home fixtures ~8 GB; a stray 34 GB /tmp/node_modules) and 118 T3 worktrees (~70 GB) were never removed when their threads finished.
+
+- **Temp dirs.** Tests, e2e and fallow write only under the per-run dir `$ENG_TMP` (`$TMPDIR/eng-<repo>-<runid>`). `eng gate` and `eng e2e` create it, point `ENG_TMP` and `TMPDIR` at it for every child, and remove it on exit, on failure and on SIGINT/SIGTERM/SIGHUP. Vitest picks it up through `globalSetup: ['./.eng/test-tmp.mjs']`. Test code never writes to bare `os.tmpdir()` or `/tmp`; `eng lint` rule `test-bare-tmpdir` flags it. Never install or copy `node_modules` into /tmp.
+- **Stale temp dirs.** A run killed with SIGKILL cannot clean up. `eng clean` lists this repo's `eng-<repo>-*` dirs older than N hours (`--older-than`, default 6) whose process is gone; `eng clean --apply` deletes them.
+- **Worktrees.** When a thread settles or its PR merges, the author confirms its commits are pushed (`git status -sb` shows nothing ahead; `git log @{u}..` is empty), then removes its worktree from the main checkout: `eng clean --worktrees --apply`. It removes only worktrees whose branch is merged into `origin/<BASE>` or deleted upstream, AND whose commits are all on the remote, AND that have no uncommitted changes. Everything else is reported, never deleted.
+- **Never delete unpushed or dirty worktrees.** Not with `git worktree remove --force`, not with `rm -rf`. Report them to the repo lead with the path, branch and what is unpushed or uncommitted.
+- `eng clean` is a dry run by default; read its output before adding `--apply`.
+
+## 6. GAPS
 
 1. Server-side enforcement (rulesets, required checks) is not applied by `eng` v0. Local hooks are convenience; `--no-verify` skips them.
