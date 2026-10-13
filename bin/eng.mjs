@@ -236,6 +236,12 @@ function rulesProve() {
 const head = () => sh('git rev-parse HEAD');
 const baseRef = cfg => { try { sh(`git rev-parse --verify origin/${cfg.project.default_branch}`); return `origin/${cfg.project.default_branch}`; } catch { return cfg.project.default_branch; } };
 const patchId = (cfg, rev = 'HEAD') => { const mb = sh(`git merge-base ${baseRef(cfg)} ${rev}`); return sh(`git diff --binary ${mb} ${rev} | git patch-id --stable`).split(' ')[0] || 'empty'; };
+// On the default branch HEAD equals base, so the branch patch-id is 'empty'. The change being validated there is the
+// last merged one: a squash merge is one commit whose diff HEAD^..HEAD has the same patch-id as the PR branch had
+// against its merge-base. Records written on the (now deleted) PR head resolve on main through that patch-id.
+const mergedPatchId = () => { try { return sh('git diff --binary HEAD^ HEAD | git patch-id --stable').split(' ')[0] || 'empty'; } catch { return 'empty'; } };
+const effectivePatchId = cfg => { const p = patchId(cfg); return p === 'empty' && sh(`git merge-base ${baseRef(cfg)} HEAD`) === head() ? mergedPatchId() : p; };
+const byTime = (x, y) => (Date.parse(x.at) || 0) - (Date.parse(y.at) || 0);
 function notes(sha) { try { return sh(`git notes --ref ${NOTES} show ${sha}`).split('\n').filter(Boolean).map(JSON.parse); } catch { return []; } }
 function allNotes() { let l = ''; try { l = sh(`git notes --ref ${NOTES} list`); } catch {} return l.split('\n').filter(Boolean).flatMap(x => notes(x.split(' ')[1])); }
 function record(rec) { sh(`git notes --ref ${NOTES} append -m '${JSON.stringify(rec).replaceAll("'", "'\\''")}' ${rec.sha}`); }
@@ -265,7 +271,7 @@ function verifyCreate(id) {
 
 function verifyMaintain() {
   const cfg = loadConfig(), v = cfg.verification; clean();
-  const H = head(), pid = patchId(cfg), dir = path.join(ROOT, v.checks_dir);
+  const H = head(), pid = effectivePatchId(cfg), dir = path.join(ROOT, v.checks_dir);
   const ids = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => f.endsWith('.sh')).map(f => f.slice(0, -3)) : [];
   const hist = allNotes(); const problems = [];
   for (const id of ids) {
@@ -273,12 +279,17 @@ function verifyMaintain() {
     const runs = Array.from({ length: v.flake_runs }, () => runCheck(cfg, id, ROOT).ok);
     const passes = runs.filter(Boolean).length;
     const status = passes === runs.length ? 'pass' : passes === 0 ? 'fail' : 'FLAKY';
-    const prev = hist.filter(n => n.check === id).at(-1);
+    // Chronological, not notes-list (SHA) order; prefer a record for this exact patch (squash merge, rebase, merge-in).
+    const recs = hist.filter(n => n.check === id).sort(byTime);
+    const prev = recs.filter(n => n.patch_id === pid && pid !== 'empty').at(-1) ?? recs.at(-1);
     const covers = (src.match(/^# covers: (.+)$/m)?.[1] || '').split(/\s+/).filter(Boolean);
     const missing = covers.filter(c => !fs.existsSync(path.join(ROOT, c)));
-    let age = 0; if (prev) { try { age = Number(sh(`git rev-list --count ${prev.sha}..HEAD`)); } catch { age = Infinity; } }
-    const stale = missing.length ? `covers missing path(s): ${missing.join(' ')}` : !prev ? 'never proven with verify create' : age > v.stale_after_commits ? `last proven ${age} commits ago` : prev.check_hash && prev.check_hash !== sha256(src) ? 'check edited since it was proven (re-run verify create)' : '';
-    const carried = prev && prev.sha !== H ? (prev.patch_id === pid ? `new SHA, same patch-id as ${prev.sha.slice(0, 8)} (merge-in)` : `new SHA, patch changed since ${prev.sha.slice(0, 8)}`) : prev ? 'same SHA' : 'no prior verdict';
+    // Age = commits since the freshest proof. A record whose SHA is gone (squashed PR head, deleted branch) still counts
+    // as fresh when it proved this same patch; otherwise it cannot be aged and is ignored.
+    const ageOf = n => { try { return Number(sh(`git rev-list --count ${n.sha}..HEAD`)); } catch { return n.patch_id === pid && pid !== 'empty' ? 0 : Infinity; } };
+    const age = prev ? Math.min(...recs.map(ageOf)) : 0;
+    const stale = missing.length ? `covers missing path(s): ${missing.join(' ')}` : !prev ? 'never proven with verify create' : age === Infinity ? 'no reachable or same-patch proof (every prior record is on an unreachable commit with a different patch-id)' : age > v.stale_after_commits ? `last proven ${age} commits ago` : prev.check_hash && prev.check_hash !== sha256(src) ? 'check edited since it was proven (re-run verify create)' : '';
+    const carried = prev && prev.sha !== H ? (prev.patch_id === pid ? `new SHA, same patch-id as ${prev.sha.slice(0, 8)} (merge-in or squash)` : `new SHA, patch changed since ${prev.sha.slice(0, 8)}`) : prev ? 'same SHA' : 'no prior verdict';
     console.log(`  ${id}: ${status} x${runs.length} | ${carried}${stale ? ' | STALE: ' + stale : ''}`);
     if (status !== 'pass') problems.push(`${id} ${status}`);
     if (stale) problems.push(`${id} stale`);
@@ -723,14 +734,19 @@ function verdictRecord(result) {
 }
 function verdictCheck() {
   const cfg = loadConfig(), H = head(), pid = patchId(cfg);
-  if (pid === 'empty') return console.log('eng verdict: PASS (no change against base)');
+  if (pid === 'empty') {
+    // On the default branch: report the verdict of the last merged change (squash commit) by patch-id. Main is not gated
+    // on it (the PR was), but the record must resolve so the audit trail survives the squash.
+    const mp = mergedPatchId(), v = mp === 'empty' ? null : verdictsFor(mp).sort(byTime).at(-1);
+    return console.log(`eng verdict: PASS (no change against base${v ? `; merged change ${H.slice(0, 8)} carries ${v.result} by ${v.by} (${v.family}) from ${v.sha.slice(0, 8)}, same patch-id` : ''})`);
+  }
   const { ids, fams } = codeAuthors(cfg), all = verdictsFor(pid);
   console.log(`  patch-id ${pid.slice(0, 12)}; code written by ${[...ids].join(', ')}${fams.size ? ` (families: ${[...fams].join(', ')})` : ''}`);
   if (!all.length) die(`verdict: no verdict for this patch-id. An agent that did not write the code runs verify-<app> and records: eng verdict PASS --by <id> --family <family>`);
   const indep = all.filter(v => !ids.has(v.by) && !fams.has(v.family));
   for (const v of all.filter(v => !indep.includes(v))) console.log(`  rejected: ${v.result} by ${v.by} (${v.family}) on ${v.sha.slice(0, 8)}: ${ids.has(v.by) ? 'verifier wrote commits in this patch' : 'same model family as an author'}`);
   if (!indep.length) die('verdict: only self-recorded verdicts; need one from an agent (and model family) that did not write the code');
-  const v = indep.at(-1);
+  const v = indep.sort(byTime).at(-1);
   if (v.result === 'FAIL') die(`verdict: latest independent verdict is FAIL by ${v.by}`);
   console.log(`eng verdict: PASS (${v.result} by ${v.by} (${v.family}) on ${v.sha.slice(0, 8)}${v.sha === H ? '' : ', carried to ' + H.slice(0, 8) + ': same patch-id'})`);
 }
@@ -773,9 +789,11 @@ function gate() {
     if (sig) { console.error(`eng gate: interrupted by ${r.signal} during ${g}`); process.exit(128 + sig); }
     const lines = (r.stdout + r.stderr).trim().split('\n').map(x => x.trim()).filter(x => x && !/^[⎯─-]+(\[\d+\/\d+\])?⎯*$/.test(x));
     const why = r.status === 0 ? lines.at(-1) : lines.find(x => /AssertionError|Error:|FAIL |✗|×|\bfailed\b|eng: FAIL/.test(x)) ?? lines.at(-1);
-    res.push([g, r.status === 0 ? 'pass' : r.status === null ? 'SKIPPED=FAIL' : 'FAIL', why]);
+    // A failing eng subcommand's die() puts its detail on the lines after "eng: FAIL ...:"; print them, not just the header.
+    const at = lines.indexOf(why), more = r.status !== 0 && /eng: FAIL .*:$/.test(why ?? '') ? lines.slice(at + 1, at + 21) : [];
+    res.push([g, r.status === 0 ? 'pass' : r.status === null ? 'SKIPPED=FAIL' : 'FAIL', why, more]);
   }
-  res.forEach(([g, s, l]) => console.log(`  ${s.padEnd(12)} ${g.padEnd(9)} ${l}`));
+  res.forEach(([g, s, l, more]) => { console.log(`  ${s.padEnd(12)} ${g.padEnd(9)} ${l}`); for (const m of more || []) console.log(`  ${''.padEnd(12)} ${''.padEnd(9)}   ${m}`); });
   const logged = res.filter(([g, st]) => st !== 'pass' && g !== 'verdict').filter(([g, , l]) => logMistake(`gate:${g}`, l, 'gate', true)).map(([g]) => `gate:${g}`);
   if (logged.length) console.log(`  logged to .eng/mistakes.jsonl: ${logged.join(', ')} (eng retro reads it)`);
   if (res.some(r => r[1] !== 'pass')) die('gate: not all required gates passed');
