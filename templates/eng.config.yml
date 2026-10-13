@@ -63,6 +63,7 @@ agents:
     - pocock/retro
     - eng/e2e-flow
     - eng/eng-stack
+    - eng/eng-route                # stage router + how to name a skill when spawning/steering a thread
     - fallow/fallow                 # official, version-matched to the pinned CLI (pkg/vendor/PINS.txt)
     - fallow/fallow-setup
 
