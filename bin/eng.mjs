@@ -689,4 +689,4 @@ const cmds = { verdict: () => a[0] === 'check' ? verdictCheck() : verdictRecord(
   rules: () => a[0] === 'prove' ? rulesProve() : die('usage: eng rules prove'),
   verify: () => a[0] === 'create' ? verifyCreate(a[1]) : a[0] === 'maintain' ? verifyMaintain() : die('usage: eng verify create <id> | maintain'),
   mistake: () => mistake(a[0], a.slice(1).join(' ')), retro, 'launch-check': launchCheck, fallow: fallowGate, 'ci-verdict': () => ciVerdict(a) };
-(cmds[cmd] || (() => { console.log('eng init | sync | drift-check | stack-check | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e | gate'); process.exit(cmd ? 1 : 0); }))();
+(cmds[cmd] || (() => { console.log('eng init | sync | drift-check | stack-check | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e | gate'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();
