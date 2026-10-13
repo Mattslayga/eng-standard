@@ -21,5 +21,19 @@ The router below (also in AGENTS.md) is the fallback when no skill was named.
 - **plan:** `poteto-mode` (it picks the playbook: bug-fix, feature, refactoring ...), then `how` / `why` / `architect`; `figure-it-out` for large work; `grilling` / `grill-with-docs` for product calls; `find-the-laws` for rules that must always hold.
 - **build:** the playbook steps; `tdd` for bug fixes; `typescript-best-practices` on every .ts/.tsx edit; `show-me-your-work` for long or unattended runs.
 - **verify:** `principle-prove-it-works`, the repo `verify-<app>` skill (use it wherever pstack says `control-cli` / `control-ui`), `eng verify create <id>`; `interrogate` for contested design, `blast-radius` for small risky diffs.
-- **ship:** the Opening a PR playbook (`no-comments`, then `technical-writing` + `unslop`), then the Babysit and Shipping playbooks.
+- **ship:** author: the Opening a PR playbook (`no-comments`, then `technical-writing` + `unslop`) up to merge-ready, never merge. Shipping manager: the loop below.
+
+## Shipping (serial, one PR at a time)
+
+Author stops at merge-ready (gate green, description, evidence, risk label). A fresh-context verifier records the verdict on the head SHA. The shipping manager (repo lead) is the only one that merges, reverts and reorders, and never writes code. Matt only approves `risk:high` (auth, payments, schema/migrations, public APIs, CI, production data) and never presses merge.
+
+Loop, whenever a PR becomes ready (`eng ship next` prints the next PR and the commands):
+1. Oldest ready PR with a PASS verdict; skip `risk:high` not yet approved.
+2. `gh pr update-branch <n>`.
+3. Wait for the gate on the new head. Same patch-id: verdict stands. Otherwise back to the verifier.
+4. `gh pr merge <n> --squash --delete-branch --match-head-commit <sha>`.
+5. Main green after merge, else revert now and return the PR to its author.
+6. Log it in the repo's Core status note.
+
+Two gate failures: back to the author with the reason. `risk:high`: send to Matt as soon as ready, one at a time, with a one-line summary, evidence and PR link; merge once he approves. Full SOP: `SHIPPING.md`. TODO: releases and tagging.
 - **retro:** `eng-retro` (`eng retro`) after each merged PR, then `correct` for any class it finds.

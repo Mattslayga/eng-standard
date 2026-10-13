@@ -135,6 +135,29 @@ function mergeQueueWarn(cfg) {
   if (!wf.some(f => new RegExp(`\\b${trig}\\b`).test(fs.readFileSync(path.join(dir, f), 'utf8')))) console.warn(`  WARN merge queue: no workflow in .github/workflows triggers on ${trig}; queued PRs will never get checks. Add \`on: ${trig}:\`.`);
 }
 
+// ---------- ship next: read-only. Prints the next PR for the serial shipping-manager loop (SHIPPING.md) and the exact commands.
+function shipNext() {
+  const cfg = loadConfig(), L = cfg.ship?.high_risk?.label || 'risk:high';
+  const prs = JSON.parse(sh('gh pr list --state open --json number,title,isDraft,createdAt,headRefOid,labels,reviewDecision,statusCheckRollup,url --limit 100') || '[]')
+    .filter(p => !p.isDraft).sort((x, y) => x.createdAt.localeCompare(y.createdAt));
+  if (!prs.length) return console.log('eng ship next: no open ready PRs.');
+  const green = p => (p.statusCheckRollup || []).length > 0 && p.statusCheckRollup.every(c => ['SUCCESS', 'NEUTRAL'].includes(c.conclusion || c.state));
+  for (const p of prs) {
+    const hi = p.labels.some(l => l.name === L);
+    if (hi && p.reviewDecision !== 'APPROVED') { console.log(`  skip #${p.number}: ${L}, waiting for Matt's approval (send him: one-line summary, evidence, ${p.url})`); continue; }
+    if (!green(p)) { console.log(`  skip #${p.number}: gate not green on ${p.headRefOid.slice(0, 8)}`); continue; }
+    return console.log(`eng ship next: #${p.number} ${p.title}${hi ? ` (${L}, approved)` : ''}
+  ${p.url}
+  1. gh pr checkout ${p.number} && eng verdict check          # PASS verdict for this patch-id, else back to the verifier
+  2. gh pr update-branch ${p.number}
+  3. gh pr checks ${p.number} --watch                          # gate on the new head; then: gh pr checkout ${p.number} && git pull && eng verdict check
+  4. gh pr merge ${p.number} --squash --delete-branch --match-head-commit $(gh pr view ${p.number} --json headRefOid -q .headRefOid)
+  5. gh api repos/{owner}/{repo}/commits/${cfg.project.default_branch}/check-runs -q '.check_runs[]|.name+" "+(.conclusion//"pending")'   # main green? else revert now and return #${p.number} to its author
+  6. log #${p.number} in the repo's Core status note`);
+  }
+  console.log('eng ship next: nothing shippable right now.');
+}
+
 function stackCheck() {
   const cfg = loadConfig(), s = cfg.stack;
   const exc = (kind, name) => (s.exceptions || []).some(e => e.kind === kind && e.name === name);
@@ -688,5 +711,5 @@ const [cmd, ...a] = process.argv.slice(2);
 const cmds = { verdict: () => a[0] === 'check' ? verdictCheck() : verdictRecord(a[0]), init, sync, 'drift-check': driftCheck, 'stack-check': stackCheck, lint, gate, e2e, conform, 'find-laws': findLaws, laws: () => a[0] === '--write' ? lawsWrite() : a[0] === 'approve' ? lawsApprove(a[1], a.slice(2).join(' ')) : laws(),
   rules: () => a[0] === 'prove' ? rulesProve() : die('usage: eng rules prove'),
   verify: () => a[0] === 'create' ? verifyCreate(a[1]) : a[0] === 'maintain' ? verifyMaintain() : die('usage: eng verify create <id> | maintain'),
-  mistake: () => mistake(a[0], a.slice(1).join(' ')), retro, 'launch-check': launchCheck, fallow: fallowGate, 'ci-verdict': () => ciVerdict(a) };
-(cmds[cmd] || (() => { console.log('eng init | sync | drift-check | stack-check | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e | gate'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();
+  mistake: () => mistake(a[0], a.slice(1).join(' ')), retro, ship: () => a[0] === 'next' ? shipNext() : die('usage: eng ship next'), 'launch-check': launchCheck, fallow: fallowGate, 'ci-verdict': () => ciVerdict(a) };
+(cmds[cmd] || (() => { console.log('eng init | sync | drift-check | stack-check | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | ship next | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e | gate'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();
