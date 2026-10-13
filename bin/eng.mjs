@@ -207,7 +207,11 @@ function lint() {
   const cfg = ref ? YAML.parse(sh(`git show ${ref}:eng.config.yml`)) : loadConfig();
   if (ref) console.log(`  rules from ${ref}:eng.config.yml`);
   const files = sh('git ls-files --cached --others --exclude-standard').split('\n').filter(f => f && !f.startsWith('.eng/rule-proofs/') && fs.existsSync(path.join(ROOT, f)));
-  const hits = builtinRules(cfg).flatMap(r => lintFiles(r, files, ROOT));
+  // Files eng sync writes (drift-tracked: rendered + vendored) are owned by the standard, not this repo. The drift
+  // check forbids editing them, so repo lint rules must not flag them either (fix such hits upstream in eng-standard).
+  const managed = new Set([...Object.keys(render(loadConfig())), ...Object.keys(JSON.parse(readOr('.eng/lock.json', '{}')).files || {})]);
+  const own = files.filter(f => !managed.has(f));
+  const hits = builtinRules(cfg).flatMap(r => lintFiles(r, own, ROOT));
   if (hits.length) die(`lint:\n  ${hits.join('\n  ')}`);
   console.log(`eng lint: PASS (${builtinRules(cfg).length} rules)`);
 }
