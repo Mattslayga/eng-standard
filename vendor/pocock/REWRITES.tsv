@@ -1,0 +1,4 @@
+# from<TAB>to. Applied to every pocock file eng init installs. The vendored copy stays byte-identical to upstream.
+# writing-for-agents is not vendored; pstack's equivalent is the Authoring a skill playbook.
+Call the Skill tool with `writing-for-agents` for the writing style guide.	Read `{skills_dir}/poteto-mode/playbooks/authoring-a-skill.md` (pstack's equivalent of writing-for-agents) for the writing style guide.
+Follow the advice in the `writing-for-agents` skill.	Follow the pstack Authoring a skill playbook (`{skills_dir}/poteto-mode/playbooks/authoring-a-skill.md`).

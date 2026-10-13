@@ -7,7 +7,7 @@ import os from 'node:os';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { renderAll, expandSkills } from '../lib/render.mjs';
+import { renderAll, expandSkills, routerText, ROUTE_RULE } from '../lib/render.mjs';
 
 const PKG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = process.cwd();
@@ -96,6 +96,7 @@ function init() {
   sync();
   sh('git config core.hooksPath .githooks');
   console.log('  git config core.hooksPath .githooks');
+  console.log(`\nSkill router (also in AGENTS.md). ${ROUTE_RULE}\n${routerText()}\nSpawning or steering a thread: name the skill or playbook in the message, e.g. "/poteto-mode, bug-fix playbook".\n`);
   mergeQueueWarn(cfg);
   if (!cfg.launch) { console.log(`  GAP 1: ${NO_LAUNCH}.\n  Do not create the verify-<app> skill yet: it may only call launch, never build infra. Add launch: to eng.config.yml (up/doctor/down) in the codebase, then run eng launch-check.`); return console.log('eng init: done, verify-skill creation STOPPED on gap 1 (no isolated launch).'); }
   console.log('eng init: done. Next: run create-verification-skill to make the repo verify-<app> skill, then start tasks with poteto-mode.');

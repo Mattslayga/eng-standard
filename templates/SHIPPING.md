@@ -24,6 +24,8 @@ Company name: Slaytek Systems (never "Slaytek" alone).
 
 ## 1. Pick up and do work
 
+Name the skill. A lead that spawns or steers a coding thread (e.g. T3) names the skill or playbook in the message: "/poteto-mode, bug-fix playbook" or "read .agents/skills/poteto-mode/SKILL.md first". This is the primary path; the skill router in AGENTS.md (and the `eng-route` skill) is the fallback. To use any skill, read `.agents/skills/<name>/SKILL.md`; do not rely on description matching.
+
 1. Branch from current `origin/<BASE>`.
 2. Grill the plan before code (`grilling` skill). Architecture and engineering questions are answered first.
 3. Edit loop: `<TEST>`.
