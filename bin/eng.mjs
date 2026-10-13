@@ -143,9 +143,41 @@ function mergeQueueWarn(cfg) {
   if (!wf.some(f => new RegExp(`\\b${trig}\\b`).test(fs.readFileSync(path.join(dir, f), 'utf8')))) console.warn(`  WARN merge queue: no workflow in .github/workflows triggers on ${trig}; queued PRs will never get checks. Add \`on: ${trig}:\`.`);
 }
 
-// ---------- ship next: read-only. Prints the next PR for the serial shipping-manager loop (SHIPPING.md) and the exact commands.
+// ---------- ship next: read-only. Prints live main/merged state from GitHub, then the next PR for the serial shipping-manager loop (SHIPPING.md) and the exact commands.
+function shipLiveState(cfg) {
+  const base = cfg.project.default_branch;
+  // Always from live GitHub; never memory or a prior failed command (fixed rule 17).
+  let sha = 'unknown', checks = [];
+  try { sha = sh(`gh api repos/{owner}/{repo}/commits/${base} -q .sha`); } catch (e) { console.log(`  live ${base}: could not read tip (${(e.stderr || e.message || e).toString().trim().split('\n')[0]})`); }
+  try {
+    checks = JSON.parse(sh(`gh api repos/{owner}/{repo}/commits/${base}/check-runs -q '[.check_runs[]|{name:.name,conclusion:(.conclusion//"pending")}]'`) || '[]');
+  } catch (e) { console.log(`  live ${base} checks: could not read (${(e.stderr || e.message || e).toString().trim().split('\n')[0]})`); }
+  const tip = sha === 'unknown' ? 'unknown' : sha.slice(0, 8);
+  if (sha !== 'unknown' || checks.length) {
+    const summary = checks.length
+      ? checks.map(c => `${c.name} ${c.conclusion || 'pending'}`).join('; ')
+      : 'no check-runs';
+    const allGreen = checks.length > 0 && checks.every(c => ['success', 'neutral', 'skipped'].includes(String(c.conclusion || '').toLowerCase()));
+    console.log(`  live ${base}: ${tip} | ${allGreen ? 'GREEN' : checks.length ? 'NOT GREEN' : 'checks unknown'} | ${summary}`);
+  }
+  let merged = [];
+  try { merged = JSON.parse(sh('gh pr list --state merged --json number,title,mergedAt,mergeCommit,url --limit 5') || '[]'); } catch (e) {
+    console.log(`  live merged: could not read (${(e.stderr || e.message || e).toString().trim().split('\n')[0]})`);
+  }
+  if (merged.length) {
+    console.log('  live recently merged:');
+    for (const p of merged) {
+      const msha = p.mergeCommit?.oid || p.mergeCommit?.sha || null;
+      console.log(`    #${p.number} ${p.title} → merge SHA ${msha ? msha.slice(0, 8) : 'NONE (read failed)'} (${p.mergedAt || '?'}) ${p.url || ''}`);
+    }
+  } else {
+    console.log('  live recently merged: (none)');
+  }
+}
 function shipNext() {
   const cfg = loadConfig(), L = cfg.ship?.high_risk?.label || 'risk:high';
+  console.log('eng ship next: live state from GitHub');
+  shipLiveState(cfg);
   const prs = JSON.parse(sh('gh pr list --state open --json number,title,isDraft,createdAt,headRefOid,labels,reviewDecision,statusCheckRollup,url --limit 100') || '[]')
     .filter(p => !p.isDraft).sort((x, y) => x.createdAt.localeCompare(y.createdAt));
   if (!prs.length) return console.log('eng ship next: no open ready PRs.');

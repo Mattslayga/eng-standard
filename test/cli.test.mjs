@@ -143,6 +143,16 @@ test('eng init advises non-strict required checks; SHIPPING.md and AGENTS.md car
   assert.match(ship, /Required checks are not strict/);
   assert.match(ship, /must pass 3 consecutive runs/);
   assert.doesNotMatch(ship, /<(SPAWN|RULESET|CI_HYGIENE|FLAKE_RUNS)>/);
+  // Fixed rules 16 (red-main recovery) and 17 (live GitHub state) in SHIPPING.md and AGENTS.md
+  for (const doc of [ship, agents]) {
+    assert.match(doc, /16\. \*\*A red-`main` recovery must end in either `main` green or an explicit escalation/);
+    assert.match(doc, /Motus f193b345, 14 Oct 2026/);
+    assert.match(doc, /17\. \*\*Before reporting merge or ship status, read live state from GitHub/);
+    assert.match(doc, /Core Edge #257, 14 Oct 2026/);
+    assert.match(doc, /ec67f831/);
+  }
+  assert.match(ship, /two recovery threads ended with main still red/);
+  assert.match(agents, /eng ship next` prints the live merged state and main checks/);
   assert.equal(eng('drift-check').status, 0);
 });
 
