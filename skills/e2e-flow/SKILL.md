@@ -12,3 +12,4 @@ This is the Drive harness of the repo's `verify-<app>` skill (pstack `create-ver
 3. Call `app.screenshot('<state>')` before and after the key action, so a passing run has stills.
 4. Run `eng e2e`. Done: it prints `PASS` and `.eng/evidence/<sha>/e2e/` holds `video.webm` and the screenshots. CI replays only (`CI=1`, `--strict-cache`); it never records.
 5. Prove it bites: break the behaviour, run `eng e2e`, see the failing assertion with observed text, revert.
+6. When e2e runs: `eng.config.yml` → `e2e.policy`. PRs run it only for app code, routes, DB schema/migrations, deps/build, CI or a `risk:high` label; docs/config/test-only PRs skip. `eng e2e-required` prints the decision; `eng e2e --if-required` is what the gate and CI call. `main` always runs the full suite after each merge; red there = revert at once.
