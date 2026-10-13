@@ -15,8 +15,8 @@ Company name: Slaytek Systems (never "Slaytek" alone).
 6. **Database: additive first.** Schema/DB changes are additive and backward-compatible. Destructive changes use expand/contract over at least two deploys (add new shape → move code → backfill → stop reading old → remove old). Never run a `down()` migration as production rollback.
 7. **Taste evidence.** UI work produces screenshots or a video of the actual flow for Matt's taste review, posted on the PR.
 8. **Repeat mistakes become rules.** A finding seen twice becomes a lint, test or hook, proven against the original mistake.
-9. **Merge owner is per repo.** There is no global merge rule. §4 below names who or what merges, with the exact command.
-10. **State gaps plainly.** Where no allowed path exists, §9 says GAP. Do not invent a workaround.
+9. **Merge owner is per repo.** There is no global merge rule. §3 below names who or what merges, with the exact command.
+10. **State gaps plainly.** Where no allowed path exists, §7 says GAP. Do not invent a workaround.
 11. **Reading a PR is not proof.** Reading a PR does not prove it is shippable. Only running it does: checks on the exact commit, the real app exercised, and evidence posted.
 12. **Staging is not mandatory.** Prove changes on a throwaway per-PR or local environment; schema/data changes still get a dry run on a production-shaped copy where the repo has one.
 13. **Verify in production.** Ship user-facing changes dark behind a flag, verify on internal/test accounts in prod, then widen; flag off is the first rollback.
@@ -24,7 +24,9 @@ Company name: Slaytek Systems (never "Slaytek" alone).
 
 ## 1. Pick up and do work
 
-Name the skill. A lead that spawns or steers a coding thread (e.g. T3) names the skill or playbook in the message: "/poteto-mode, bug-fix playbook" or "read .agents/skills/poteto-mode/SKILL.md first". This is the primary path; the skill router in AGENTS.md (and the `eng-route` skill) is the fallback. To use any skill, read `.agents/skills/<name>/SKILL.md`; do not rely on description matching.
+To use any skill, read `.agents/skills/<name>/SKILL.md`; do not rely on description matching. The skill router in AGENTS.md (and the `eng-route` skill) is the fallback.
+
+<SPAWN>
 
 1. Branch from current `origin/<BASE>`.
 2. Grill the plan before code (`grilling` skill). Architecture and engineering questions are answered first.
@@ -38,6 +40,12 @@ After merging `<BASE>` in, the head is a new SHA: run `eng verify maintain` to r
 
 **E2E is path-based on PRs** (`eng.config.yml` → `e2e.policy`). A PR runs e2e when it touches app code, routes, DB schema/migrations, deps/build config or CI, or is labelled `risk:high`. Docs-only, config-only (non-CI) and test-only PRs skip it: the `e2e` gate passes with `NOT REQUIRED` and the reason. Run `eng e2e-required` to see the decision and which file triggered it. A file no list matches runs e2e.
 **`<BASE>` always runs the full e2e after every merge** (and nightly where enabled). That run is the backstop for what PRs skipped. A red e2e on `<BASE>` means the shipping manager reverts the merged PR immediately, before anything else merges; no fix-forward on `<BASE>` (motus #285, 13 Oct 2026).
+
+**Flake rule for e2e.** A new or changed e2e test must pass <FLAKE_RUNS> consecutive runs (`eng.config.yml` → `e2e.flake_runs`) before it may be blocking: `eng e2e --flake-check`. All pass: blocking. All fail: a real failure, fix it. Mixed: flaky, so quarantine it as report-only (not a required check) and open an issue with the traces; it becomes blocking only after it passes <FLAKE_RUNS> in a row. Prove it bites before it blocks (`e2e-flow` skill).
+
+**Required checks are not strict.** Branch rulesets require the gate checks but do NOT require branches to be up to date before merging. Safety comes from the full run on `<BASE>` after every merge plus an immediate revert on red, and the verdict carries over by patch-id.
+
+<RULESET>
 
 ## 3. Merge
 
@@ -60,6 +68,10 @@ The shared devbox filled at ~8 GB/hour: per-run test dirs in /tmp were never del
 - **Never delete unpushed or dirty worktrees.** Not with `git worktree remove --force`, not with `rm -rf`. Report them to the repo lead with the path, branch and what is unpushed or uncommitted.
 - `eng clean` is a dry run by default; read its output before adding `--apply`.
 
-## 6. GAPS
+## 6. CI hygiene
 
-1. Server-side enforcement (rulesets, required checks) is not applied by `eng` v0. Local hooks are convenience; `--no-verify` skips them.
+<CI_HYGIENE>
+
+## 7. GAPS
+
+1. Server-side enforcement (rulesets, required checks) is not applied by `eng` v0; `eng init` prints the advice in §2 to apply by hand. Local hooks are convenience; `--no-verify` skips them.

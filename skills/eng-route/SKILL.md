@@ -9,10 +9,25 @@ To use a skill, read `.agents/skills/<name>/SKILL.md` and follow it. Do not rely
 
 ## Starting or steering a thread
 
-This is the primary path. A lead that spawns or steers a coding thread (for example in T3) names the skill or playbook in the message itself:
-- "/poteto-mode, bug-fix playbook: <task>"
-- "Read .agents/skills/poteto-mode/SKILL.md first, then use the Feature playbook: <task>"
-- When steering mid-task: "Switch to the Shipping playbook" or "Run blast-radius on this diff".
+This is the primary path. A lead that spawns or steers a coding thread (for example in T3) starts the message with one line naming the mode and the playbook, then the job:
+- `/poteto-mode -> Shipping playbook: verify commit <sha> with verify-<app>, record eng verdict`
+- `/poteto-mode -> Babysit playbook (drive): get PR #<n> to merge-ready`
+- When steering mid-task: `/poteto-mode -> Switch to the Shipping playbook` or `Run blast-radius on this diff`.
+
+Which playbook goes with which job (poteto-mode playbooks, `.agents/skills/poteto-mode/playbooks/`):
+
+| Job | Playbook | File |
+|---|---|---|
+| Drive the author's own PR to merge-ready (conflicts, review threads, CI). Not an independent review | Babysit | `babysit.md` |
+| Independent verdict by an agent that did not write the code, then land | Shipping (verification) | `shipping.md` |
+| Full autonomous program: one owner per PR from build to merge | Autopilot-full | `autopilot-full.md` |
+| Full autonomy up to a verified stack the operator lands | Autopilot-stack | `autopilot-stack.md` |
+| Bug fix / feature / refactor | Bug fix, Feature, Refactoring | `bug-fix.md`, `feature.md`, `refactoring.md` |
+
+Rules for the message:
+- Babysit is not review. The verdict comes from a separate Shipping spawn by an agent that did not write the code.
+- When the change adds a surface (route, screen, command, API, job) the repo's `verify-<app>` skill does not cover, the spawn must require `maintain-verification-skill` for that surface before the verdict.
+- Plain prose with normal spacing between words. Re-read before sending; never send a message with its spaces stripped out.
 
 The router below (also in AGENTS.md) is the fallback when no skill was named.
 

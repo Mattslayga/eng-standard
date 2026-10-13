@@ -4,7 +4,7 @@ One file, `eng.config.yml`, drives everything. Agent-agnostic: plain SKILL.md fi
 
 | Command | Does |
 |---|---|
-| `eng init` | seed eng.config.yml if missing, render everything, set `core.hooksPath .githooks` |
+| `eng init` | seed eng.config.yml if missing, render everything, set `core.hooksPath .githooks`; prints the branch ruleset advice (non-strict required checks) |
 | `eng sync` | re-render; second run prints `no changes` |
 | `eng drift-check` | fail if any generated file / symlink / lock differs from what the config renders |
 | `eng stack-check` | fail on off-stack language, framework or lockfile without a `stack.exceptions` entry; warns if `ship.merge_queue` is set and no CI workflow triggers on `merge_group` |
@@ -14,6 +14,7 @@ One file, `eng.config.yml`, drives everything. Agent-agnostic: plain SKILL.md fi
 | `eng mistake <key> <what>` | log a recurring mistake |
 | `eng laws` | `bend PROOF.bend` (Bend2) as a gate |
 | `eng e2e [--if-required]` | `e2e run` (tester-army/e2e) with evidence dir per SHA; BLOCKED = fail. `--if-required` (used by gate and CI) passes as NOT REQUIRED when `e2e.policy` says the diff does not need e2e |
+| `eng e2e --flake-check` | flake rule: runs `eng e2e` `e2e.flake_runs` times (default 3; `--runs N`). All pass = BLOCKING (exit 0); mixed = QUARANTINE (exit 11: report-only + issue); all fail = FAIL. `--results pass,fail,...` classifies existing runs. Authoring templates: `templates/e2e/` |
 | `eng e2e-required` | prints whether e2e is required for this diff and why (`--event pr\|main\|nightly`, `--base`, `--files`, `--labels`, `--json`, `--exit-code` = 10 when not required). PRs are path-based; main after merge and nightly always run the full suite |
 | `eng clean` | disk hygiene, dry run by default (`--apply` acts). Removes this repo's stale `$ENG_TMP` dirs (`eng-<repo>-*` older than `--older-than` hours, default 6, process gone). `--worktrees`: removes git worktrees whose branch is merged or deleted upstream AND fully pushed AND clean; reports the rest, never deletes them. `eng gate` / `eng e2e` run every child with `ENG_TMP`/`TMPDIR` set to a per-run dir removed on exit, failure or signal; lint rule `test-bare-tmpdir`; vitest globalSetup `.eng/test-tmp.mjs` |
 | `eng gate` | every `gates.required`; skipped/blocked = failed |

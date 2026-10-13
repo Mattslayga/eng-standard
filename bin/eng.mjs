@@ -7,7 +7,8 @@ import os from 'node:os';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { renderAll, expandSkills, routerText, ROUTE_RULE } from '../lib/render.mjs';
+import { renderAll, expandSkills, routerText, ROUTE_RULE, rulesetAdvice, SPAWN_RULE } from '../lib/render.mjs';
+import { flakeRuns, flakeVerdict, parseResults, validateFlake } from '../lib/flake.mjs';
 import { glob2re, decide, validatePolicy } from '../lib/e2e-policy.mjs';
 import { engTmp, staleTmpDirs, parseWorktrees, classifyWorktree, TMP_RULE, tmpBase } from '../lib/hygiene.mjs';
 
@@ -39,6 +40,7 @@ function validate(c) {
   for (const r of c.constraints?.rules || []) if (!r.proven_by?.incident || !r.proven_by?.fixture) errs.push(`rule ${r.id} needs proven_by.incident and proven_by.fixture`);
   for (const e of c.stack?.exceptions || []) if (!e.reason) errs.push(`stack exception ${e.name} needs a reason`);
   errs.push(...validatePolicy(c.e2e));
+  errs.push(...validateFlake(c.e2e));
   if (errs.length) die('config invalid:\n  ' + errs.join('\n  '));
 }
 
@@ -101,7 +103,8 @@ function init() {
   sync();
   sh('git config core.hooksPath .githooks');
   console.log('  git config core.hooksPath .githooks');
-  console.log(`\nSkill router (also in AGENTS.md). ${ROUTE_RULE}\n${routerText()}\nSpawning or steering a thread: name the skill or playbook in the message, e.g. "/poteto-mode, bug-fix playbook".\n`);
+  console.log(`\nSkill router (also in AGENTS.md). ${ROUTE_RULE}\n${routerText()}\nSpawning or steering a thread: ${SPAWN_RULE}\n`);
+  console.log(`Branch ruleset advice (apply by hand; eng never edits rulesets):\n${rulesetAdvice(cfg)}\n`);
   mergeQueueWarn(cfg);
   if (!cfg.launch) { console.log(`  GAP 1: ${NO_LAUNCH}.\n  Do not create the verify-<app> skill yet: it may only call launch, never build infra. Add launch: to eng.config.yml (up/doctor/down) in the codebase, then run eng launch-check.`); return console.log('eng init: done, verify-skill creation STOPPED on gap 1 (no isolated launch).'); }
   console.log('eng init: done. Next: run create-verification-skill to make the repo verify-<app> skill, then start tasks with poteto-mode.');
@@ -588,7 +591,28 @@ function e2eRequired() {
 }
 
 // ---------- e2e (tester-army/e2e, open source, Playwright; no TesterArmy account) ----------
+// Flake rule: a new or changed e2e test must pass e2e.flake_runs consecutive runs before it may block. Mixed = quarantine + issue.
+function printFlake(results, runs) {
+  const v = flakeVerdict(results, runs);
+  console.log(`eng e2e flake-check: ${v.verdict.toUpperCase()} (${results.map(x => x ? 'pass' : 'fail').join(', ')}): ${v.reason}`);
+  process.exit(v.verdict === 'blocking' ? 0 : v.verdict === 'quarantine' ? 11 : 1);
+}
+function flakeCheck() {
+  const cfg = loadConfig(), runs = Number(arg('--runs') ?? flakeRuns(cfg.e2e));
+  if (!(Number.isInteger(runs) && runs >= 2)) die('flake-check: --runs must be an integer >= 2');
+  const given = arg('--results');
+  if (given != null) { let r; try { r = parseResults(given); } catch (err) { die(`flake-check: ${err.message}`); } return printFlake(r, runs); }
+  const results = [];
+  for (let i = 1; i <= runs; i++) {  // every run, no early stop: mixed results are the evidence
+    console.log(`  run ${i}/${runs}: eng e2e`);
+    const r = spawnSync(process.execPath, [process.argv[1], 'e2e'], { cwd: ROOT, stdio: 'inherit' });
+    results.push(r.status === 0);
+  }
+  printFlake(results, runs);
+}
+
 function e2e() {
+  if (process.argv.includes('--flake-check')) return flakeCheck();
   const cfg = loadConfig(), e = cfg.e2e, H = head();
   const tmp = withTmp(cfg);
   if (process.argv.includes('--if-required')) {
@@ -801,4 +825,4 @@ const cmds = { verdict: () => a[0] === 'check' ? verdictCheck() : verdictRecord(
   rules: () => a[0] === 'prove' ? rulesProve() : die('usage: eng rules prove'),
   verify: () => a[0] === 'create' ? verifyCreate(a[1]) : a[0] === 'maintain' ? verifyMaintain() : die('usage: eng verify create <id> | maintain'),
   mistake: () => mistake(a[0], a.slice(1).join(' ')), retro, ship: () => a[0] === 'next' ? shipNext() : die('usage: eng ship next'), 'launch-check': launchCheck, fallow: fallowGate, 'ci-verdict': () => ciVerdict(a), 'e2e-required': e2eRequired, clean: cleanCmd };
-(cmds[cmd] || (() => { console.log('eng init | sync | drift-check | stack-check | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | ship next | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e [--if-required] | e2e-required [--event pr|main|nightly] [--base <ref>] [--files a,b] [--labels a,b] [--json] [--exit-code] | gate | clean [--older-than <h>] [--worktrees [--tmp]] [--no-fetch] [--apply]'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();
+(cmds[cmd] || (() => { console.log('eng init | sync | drift-check | stack-check | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | ship next | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e [--if-required] [--flake-check [--runs N] [--results pass,fail,...]] | e2e-required [--event pr|main|nightly] [--base <ref>] [--files a,b] [--labels a,b] [--json] [--exit-code] | gate | clean [--older-than <h>] [--worktrees [--tmp]] [--no-fetch] [--apply]'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();
