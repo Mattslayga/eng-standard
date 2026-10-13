@@ -20,6 +20,8 @@ Company name: Slaytek Systems (never "Slaytek" alone).
 11. **Reading a PR is not proof.** Reading a PR does not prove it is shippable. Only running it does: checks on the exact commit, the real app exercised, and evidence posted.
 12. **Staging is not mandatory.** Prove changes on a throwaway per-PR or local environment; schema/data changes still get a dry run on a production-shaped copy where the repo has one.
 13. **Verify in production.** Ship user-facing changes dark behind a flag, verify on internal/test accounts in prod, then widen; flag off is the first rollback.
+14. **A red `<BASE>` is never called a flake without evidence.** Evidence means the failing log line and a reason it is nondeterministic. Re-run once only, to confirm. If it fails twice it is real: revert the merged PR or fix the cause; never re-run until green (motus MOT-338, 13 Oct 2026). After a squash merge, `eng verify maintain` and `eng verdict check` resolve the PR head's records on `<BASE>` by patch-id.
+15. **Plans and evidence are committed, never left only in `/tmp`.** A plan, repro, log excerpt or evidence file that a decision rests on goes into the repo (or the PR/issue) before the decision is reported. `/tmp` is scratch and is cleaned (§5); a path there is not evidence.
 
 
 ## 1. Pick up and do work
