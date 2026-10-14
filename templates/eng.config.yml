@@ -26,6 +26,7 @@ stack:
     backend:         { use: Convex, why: "Reactive DB + functions with generated types; already used in thinksmart/motus/infotech.", decision: DRAFT }
     effects:         { use: "Effect (with Confect for Convex)", why: "Typed errors/services/schemas; Confect is the maintained Effect<->Convex framework (community, not Convex-official).", decision: DRAFT }
     codebase_analysis: { use: "Fallow (npm fallow, exact pin) for the module graph: unused files/exports/deps, cycles, boundaries, duplication, complexity", why: "Linters see one file; fallow sees the project graph (fallow.tools/docs/explanations/fallow-vs-linters). Rust-native, MIT, zero-config for Vite/Vitest/Convex. Replaces knip and jscpd; complements vp check and eng lint.", decision: DRAFT }
+    agent_activity_ui: { use: "shadcn Trace (`pnpm dlx shadcn@latest add trace`; Trace, TraceLine, TraceIcon, TraceTitle, TraceDescription, TraceCollapsible*), with AI Elements and Code Block where relevant", why: "When an app shows agent or AI activity to users (reasoning, tool calls, subagents, queues, plans, sources), use Trace instead of custom UI: one abstraction, AI SDK parts, a11y built in. Published by shadcn 14 Oct 2026. Docs: https://ui.shadcn.com/docs/components/trace", decision: DRAFT }
     proofs:          { use: "Bend2 for laws on core pure logic", why: "Machine-checked invariants as backpressure; only binds Bend code, so scope it to small pure modules.", decision: DRAFT }
   languages:
     allowed: [typescript, javascript, bend]
