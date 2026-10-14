@@ -18,6 +18,7 @@ One file, `eng.config.yml`, drives everything. Agent-agnostic: plain SKILL.md fi
 | `eng e2e-required` | prints whether e2e is required for this diff and why (`--event pr\|main\|nightly`, `--base`, `--files`, `--labels`, `--json`, `--exit-code` = 10 when not required). PRs are path-based; main after merge and nightly always run the full suite |
 | `eng clean` | disk hygiene, dry run by default (`--apply` acts). Removes this repo's stale `$ENG_TMP` dirs (`eng-<repo>-*` older than `--older-than` hours, default 6, process gone). `--worktrees`: removes git worktrees whose branch is merged or deleted upstream AND fully pushed AND clean; reports the rest, never deletes them. `eng gate` / `eng e2e` run every child with `ENG_TMP`/`TMPDIR` set to a per-run dir removed on exit, failure or signal; lint rule `test-bare-tmpdir`; vitest globalSetup `.eng/test-tmp.mjs` |
 | `eng gate` | every `gates.required`; skipped/blocked = failed |
+| `hooks.pre_commit`, `agents.post_edit_command` | optional config. `.githooks/pre-commit` runs each `hooks.pre_commit` command after drift-check, stack-check and lint. `agents.post_edit_command` becomes a Claude Code `PostToolUse` hook in `.claude/settings.json` for `Edit\|MultiEdit\|Write`; exit code 2 returns its stderr to the agent. Unset keys render the same files as before |
 | `npm test` | this package's own tests (`node --test`) |
 
 Vendored upstream skills (verbatim, path-rewritten `.cursor/skills/` → `.agents/skills/`): see `vendor/PINS.txt`. Licenses: MIT (vendor/*/LICENSE).

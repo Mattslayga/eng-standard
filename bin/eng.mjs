@@ -39,6 +39,10 @@ function validate(c) {
   if (c.gates?.skipped_is_failed !== true) errs.push('gates.skipped_is_failed must be true');
   for (const r of c.constraints?.rules || []) if (!r.proven_by?.incident || !r.proven_by?.fixture) errs.push(`rule ${r.id} needs proven_by.incident and proven_by.fixture`);
   for (const e of c.stack?.exceptions || []) if (!e.reason) errs.push(`stack exception ${e.name} needs a reason`);
+  const pre = c.hooks?.pre_commit;
+  if (pre !== undefined && !(Array.isArray(pre) && pre.every(x => typeof x === 'string' && x.trim()))) errs.push('hooks.pre_commit must be a list of non-empty commands');
+  const post = c.agents?.post_edit_command;
+  if (post !== undefined && !(typeof post === 'string' && post.trim())) errs.push('agents.post_edit_command must be a non-empty command');
   errs.push(...validatePolicy(c.e2e));
   errs.push(...validateFlake(c.e2e));
   if (errs.length) die('config invalid:\n  ' + errs.join('\n  '));
