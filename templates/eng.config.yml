@@ -171,7 +171,7 @@ db:
   additive_only: true
 
 hooks:
-  pre_commit: []                  # optional extra commands, run in order after drift-check, stack-check and lint in .githooks/pre-commit.
+  pre_commit: []                  # optional extra commands; .githooks/pre-commit runs each in its own sh -c after drift-check, stack-check and lint, and stops at the first failure.
 
 constraints:
   rules:

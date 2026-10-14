@@ -11,14 +11,49 @@ const ENG = path.resolve(new URL('../bin/eng.mjs', import.meta.url).pathname);
 const TPL = path.resolve(new URL('../templates/eng.config.yml', import.meta.url).pathname);
 const cfg = (extra = {}) => ({ project: { default_branch: 'main', protected_branches: ['main'] }, agents: { harnesses: ['claude-code'] }, ...extra });
 
-test('pre-commit runs hooks.pre_commit commands after the eng checks', () => {
-  const line = hooks(cfg({ hooks: { pre_commit: ['bun run lint:staged', 'bun run typecheck'] } }))['.githooks/pre-commit'].trim().split('\n').at(-1);
-  assert.equal(line, '$ENG drift-check && $ENG stack-check && $ENG lint && bun run lint:staged && bun run typecheck');
+test('pre-commit runs each hooks.pre_commit command in its own shell after the eng checks', () => {
+  const body = hooks(cfg({ hooks: { pre_commit: ['bun run lint:staged', "printf %s it's"] } }))['.githooks/pre-commit'].trim().split('\n').slice(-3);
+  assert.deepEqual(body, [
+    '$ENG drift-check && $ENG stack-check && $ENG lint || exit $?',
+    "sh -c 'bun run lint:staged' || exit $?",
+    "sh -c 'printf %s it'\\''s' || exit $?",
+  ]);
+});
+
+const runHook = (preCommit, engCmd) => {
+  const dir = fs.mkdtempSync(path.join(process.env.ENG_TMP ?? os.tmpdir(), 'eng-hook-run-'));
+  try {
+    const file = path.join(dir, 'pre-commit');
+    fs.writeFileSync(file, hooks(cfg({ hooks: { pre_commit: preCommit } }))['.githooks/pre-commit']);
+    return spawnSync('/bin/sh', [file], { encoding: 'utf8', env: { ...process.env, ENG: engCmd } });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+test('a failing eng check stops the hook before any configured command runs', () => {
+  const r = runHook(['printf FIRST; printf SECOND', 'printf THIRD'], 'false');
+  assert.notEqual(r.status, 0);
+  assert.equal(r.stdout, '');
+});
+
+test('a failing configured command fails the hook and skips later commands', () => {
+  const r = runHook(['false || false', 'printf AFTER'], 'true');
+  assert.notEqual(r.status, 0);
+  assert.equal(r.stdout, '');
+});
+
+test('a trailing comment in one command does not skip the next command', () => {
+  const r = runHook(["printf 'a b' # note", 'printf -- -next'], 'true');
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, 'a b-next');
 });
 
 test('unset hook keys render the same pre-commit and Claude settings as before', () => {
   assert.equal(hooks(cfg())['.githooks/pre-commit'].trim().split('\n').at(-1), '$ENG drift-check && $ENG stack-check && $ENG lint');
+  assert.equal(hooks(cfg({ hooks: { pre_commit: [] } }))['.githooks/pre-commit'], hooks(cfg())['.githooks/pre-commit']);
   assert.deepEqual(Object.keys(JSON.parse(claudeSettings(cfg()))), ['permissions']);
+  assert.deepEqual(Object.keys(JSON.parse(claudeSettings({ project: { default_branch: 'main' } }))), ['permissions']);
 });
 
 test('agents.post_edit_command renders a Claude Code PostToolUse hook next to the deny list', () => {
