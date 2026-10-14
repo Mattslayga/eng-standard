@@ -44,6 +44,7 @@ stack:
 agents:
   harnesses: [claude-code, codex, cursor]   # AGENTS.md is read by Codex and Cursor; CLAUDE.md imports it.
   skills_dir: .agents/skills
+  # post_edit_command: "npm run lint:changed -- --hook"   # optional; rendered as a Claude Code PostToolUse hook (Edit|MultiEdit|Write) in .claude/settings.json. Exit 2 feeds stderr back to the agent.
   rules:                          # Rule -> enforcer table (pstack correct). enforced_by: a lint rule id, check id, gate, hook path, or `review` + why (judgment only). eng verify maintain fails on a rule with nothing enforcing it.
     - { rule: "Orders are written only through saveOrder()", enforced_by: gate-only-writes }
   skills:                         # <source>/<name>. Vendored copies at pins in pkg/vendor/PINS.txt; eng/* are ours.
@@ -168,6 +169,9 @@ flags:
 db:
   migrations: "migrations/**"
   additive_only: true
+
+hooks:
+  pre_commit: []                  # optional extra commands; .githooks/pre-commit runs each in its own sh -c after drift-check, stack-check and lint, and stops at the first failure.
 
 constraints:
   rules:
