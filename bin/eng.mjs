@@ -11,6 +11,7 @@ import { renderAll, expandSkills, routerText, ROUTE_RULE, rulesetAdvice, SPAWN_R
 import { flakeRuns, flakeVerdict, parseResults, validateFlake } from '../lib/flake.mjs';
 import { glob2re, decide, validatePolicy } from '../lib/e2e-policy.mjs';
 import { engTmp, staleTmpDirs, parseWorktrees, classifyWorktree, TMP_RULE, tmpBase } from '../lib/hygiene.mjs';
+import { audit, corePayloads, minVersion, cmp, sydneyMonth } from '../lib/stack-audit.mjs';
 
 const PKG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = process.cwd();
@@ -219,6 +220,52 @@ function stackCheck() {
   if (bad.length) die(`stack-check: off-stack additions:\n  ${bad.join('\n  ')}\n  Fix: remove it, or add stack.exceptions: [{kind, name, reason}] to eng.config.yml (Matt approves).`);
   mergeQueueWarn(cfg);
   console.log(`eng stack-check: PASS (languages: ${[...langs].join(', ')})`);
+}
+
+// ---------- stack-audit: read-only. Declared deps, packageManager and CI pins at a git ref vs standard/modern-stack.yml floors.
+function repoFacts(name, dir, ref) {
+  const git = (...g) => { const r = spawnSync('git', ['-C', dir, ...g], { encoding: 'utf8' }); return r.status === 0 ? r.stdout : null; };
+  ref ||= ['origin/main', 'origin/master', 'main', 'HEAD'].find(r => git('rev-parse', '--verify', '-q', `${r}^{commit}`));
+  if (!ref || !git('rev-parse', '--verify', '-q', `${ref}^{commit}`)) die(`stack-audit: ${dir}: no readable ref${ref ? ` ${ref}` : ''}`);
+  const files = git('ls-tree', '-r', '--name-only', ref).split('\n').filter(Boolean);
+  const deps = {}; let packageManager = null;
+  for (const f of files.filter(f => path.basename(f) === 'package.json' && !/(^|\/)(node_modules|fixtures|examples)\//.test(f))) {
+    let pj; try { pj = JSON.parse(git('show', `${ref}:${f}`)); } catch { continue; }
+    if (f === 'package.json') packageManager = pj.packageManager || null;
+    for (const [n, spec] of Object.entries({ ...pj.dependencies, ...pj.devDependencies })) { // monorepo: the lowest declared minimum is the drift
+      const v = minVersion(spec), cur = minVersion(deps[n]);
+      if (!(n in deps) || (v && (!cur || cmp(v, cur) < 0))) deps[n] = spec;
+    }
+  }
+  const ci = files.filter(f => /^(\.github\/workflows|\.buildkite)\/.*\.ya?ml$/.test(f)).map(f => git('show', `${ref}:${f}`)).join('\n');
+  const pins = re => [...new Set([...ci.matchAll(re)].map(m => m[1]))].sort();
+  const nodeFile = ['.node-version', '.nvmrc'].filter(f => files.includes(f)).map(f => git('show', `${ref}:${f}`).trim());
+  return { name, ref, deps, packageManager, ciBun: pins(/bun-version:\s*['"]?v?([\w.]+)/g), ciNode: [...new Set([...pins(/node-version:\s*['"]?v?([\w.]+)/g), ...nodeFile])] };
+}
+function stackAudit() {
+  const opt = k => { const i = a.indexOf(k); return i < 0 ? undefined : a.splice(i, 2)[1]; };
+  const ref = opt('--ref'), stdFile = opt('--standard') || path.join(PKG, 'standard/modern-stack.yml');
+  const space = opt('--core-space'), tgt = opt('--core-target');
+  const json = a.includes('--json'), core = a.includes('--core');
+  const std = YAML.parse(fs.readFileSync(stdFile, 'utf8'));
+  const targets = a.filter(x => !x.startsWith('--'));
+  const findings = [];
+  for (const t of targets.length ? targets : [ROOT]) {
+    const [name, dir] = t.includes('=') ? t.split('=') : [path.basename(path.resolve(t)), t];
+    const facts = repoFacts(name, path.resolve(dir), ref);
+    const found = audit(std, facts); findings.push(...found);
+    if (!json && !core) {
+      const d = found.filter(f => f.status === 'drift');
+      console.log(`${name} @ ${facts.ref}: ${d.length ? `${d.length} drift` : 'on standard'}${std.exceptions?.[name] ? ` (exception ${std.exceptions[name].status}: ${std.exceptions[name].reason})` : ''}`);
+      for (const f of found) console.log(`  ${f.status === 'drift' ? 'DRIFT   ' : 'excepted'} ${f.layer.padEnd(11)} ${f.item}: ${f.have} -> ${f.want}`);
+    }
+  }
+  if (core) {
+    const [type, id] = tgt ? tgt.split(':') : [];
+    console.log(JSON.stringify(corePayloads(std, findings, { space: space || std.core.space, target: tgt ? { type, id } : std.core.followup_target, month: sydneyMonth() }), null, 2));
+  } else if (json) console.log(JSON.stringify({ standard: std.name, findings }, null, 2));
+  else console.log(`eng stack-audit: ${findings.filter(f => f.status === 'drift').length} drift finding(s) against ${std.name} (read-only; --core prints Core follow-up payloads, never sends them)`);
+  process.exit(findings.some(f => f.status === 'drift') ? 1 : 0);
 }
 
 // ---------- custom lint / constraints ----------
@@ -875,8 +922,8 @@ function ciVerdict(ids) { // Buildkite: read each step outcome; anything but "pa
 }
 
 const [cmd, ...a] = process.argv.slice(2);
-const cmds = { verdict: () => a[0] === 'check' ? verdictCheck() : verdictRecord(a[0]), init, sync, 'drift-check': driftCheck, 'stack-check': stackCheck, lint, gate, e2e, conform, 'find-laws': findLaws, laws: () => a[0] === '--write' ? lawsWrite() : a[0] === 'approve' ? lawsApprove(a[1], a.slice(2).join(' ')) : laws(),
+const cmds = { verdict: () => a[0] === 'check' ? verdictCheck() : verdictRecord(a[0]), init, sync, 'drift-check': driftCheck, 'stack-check': stackCheck, 'stack-audit': stackAudit, lint, gate, e2e, conform, 'find-laws': findLaws, laws: () => a[0] === '--write' ? lawsWrite() : a[0] === 'approve' ? lawsApprove(a[1], a.slice(2).join(' ')) : laws(),
   rules: () => a[0] === 'prove' ? rulesProve() : die('usage: eng rules prove'),
   verify: () => a[0] === 'create' ? verifyCreate(a[1]) : a[0] === 'maintain' ? verifyMaintain() : die('usage: eng verify create <id> | maintain'),
   mistake: () => mistake(a[0], a.slice(1).join(' ')), retro, ship: () => a[0] === 'next' ? shipNext() : die('usage: eng ship next'), 'launch-check': launchCheck, fallow: fallowGate, 'ci-verdict': () => ciVerdict(a), 'e2e-required': e2eRequired, clean: cleanCmd };
-(cmds[cmd] || (() => { console.log('eng init | sync | drift-check | stack-check | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | ship next | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e [--if-required] [--flake-check [--runs N] [--results pass,fail,...]] | e2e-required [--event pr|main|nightly] [--base <ref>] [--files a,b] [--labels a,b] [--json] [--exit-code] | gate | clean [--older-than <h>] [--worktrees [--tmp]] [--no-fetch] [--apply]'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();
+(cmds[cmd] || (() => { console.log('eng init | sync | drift-check | stack-check | stack-audit [<name>=<path>...] [--ref <ref>] [--standard <file>] [--json | --core [--core-space <s>] [--core-target <type>:<id>]] | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | ship next | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e [--if-required] [--flake-check [--runs N] [--results pass,fail,...]] | e2e-required [--event pr|main|nightly] [--base <ref>] [--files a,b] [--labels a,b] [--json] [--exit-code] | gate | clean [--older-than <h>] [--worktrees [--tmp]] [--no-fetch] [--apply]'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();
