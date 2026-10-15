@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync, execSync } from 'node:child_process';
 import YAML from 'yaml';
-import { minVersion, audit, corePayloads } from '../lib/stack-audit.mjs';
+import { minVersion, audit, corePayloads, sydneyMonth } from '../lib/stack-audit.mjs';
 
 const ENG = path.resolve(new URL('../bin/eng.mjs', import.meta.url).pathname);
 const STD = YAML.parse(fs.readFileSync(new URL('../standard/modern-stack.yml', import.meta.url), 'utf8'));
@@ -18,6 +18,17 @@ test('minVersion reads the lowest version a spec allows', () => {
   assert.deepEqual(minVersion('npm:typescript@7.0.2'), [7, 0, 2]);
   assert.equal(minVersion('workspace:*'), null);
   assert.equal(minVersion('github:a/b'), null);
+});
+
+test('upper-bound-only specs have no minimum and are not drift', () => {
+  assert.equal(minVersion('<2.0.0'), null);
+  assert.equal(minVersion('<= 1.6.33'), null);
+  assert.deepEqual(audit(STD, facts('x', { convex: '<1.50.0', 'better-auth': '<=1.7.0' })), []);
+});
+
+test('the --core month is the Sydney calendar month, not the UTC one', () => {
+  assert.equal(sydneyMonth(new Date('2026-10-31T14:00:00Z')), '2026-11');
+  assert.equal(sydneyMonth(new Date('2026-10-31T12:59:00Z')), '2026-10');
 });
 
 test('a repo on the standard has no findings', () => {

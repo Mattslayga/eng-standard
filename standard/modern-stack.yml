@@ -3,7 +3,8 @@
 # Reasoning lives in Core (core.why); docs/modern-stack.md is the short human view.
 version: 1
 name: Modern Stack v1
-status: APPROVED                  # Matt, Thu 15 Oct 2026 (Sydney)
+status: APPROVED_EXCEPT_PENDING   # Matt, Thu 15 Oct 2026 (Sydney). Decisions marked DEFAULT_PENDING_MATT are not approved.
+pending_matt: [lint_format.svelte_template_linting]
 core:
   space: slayga
   why: nd72pb884wwtv122vr5b6kctes86fpt1          # Tech Stack Decisions Index
@@ -41,12 +42,17 @@ layers:
     floors: { tailwindcss: 4.3.3 }
     alternative: none
   lint_format:
-    tool: "Oxlint (type-aware) + Oxfmt through vp check; custom rules through eng lint or Oxlint JS plugins. Svelte template linting is not covered (accepted loss)"
+    tool: "Oxlint (type-aware) + Oxfmt through vp check; custom rules through eng lint or Oxlint JS plugins"
+    decisions:
+      svelte_template_linting:
+        status: DEFAULT_PENDING_MATT   # Matt was not asked; the tower took this default. Retiring eslint-plugin-svelte below follows it.
+        default: "not covered; Oxlint plus svelte-check warnings, no ESLint"
     floors: { oxlint: 1.88.0, oxfmt: 0.73.0 }
     replaces: [eslint, typescript-eslint, "@typescript-eslint/parser", "@typescript-eslint/eslint-plugin", eslint-plugin-svelte, prettier, prettier-plugin-svelte, prettier-plugin-tailwindcss]
     alternative: none
   typecheck:
     tool: "TypeScript 7 as the checker with typescript 6.0 kept as the API shim until TS 7.1; svelte-check --tsgo in Svelte repos"
+    # typescript 6.0.3 is intended: TS 5.x repos (Motus, Infotech, Syncsoon) report drift on the first run, with no exception.
     floors: { typescript: 6.0.3, "@typescript/native": 7.0.2, svelte-check: 4.7.6, "@types/node": 24.0.0 }
     alternative: "plain TS 7 as typescript, only in repos with no Svelte, Astro or Next and no TS-API tools"
   test:

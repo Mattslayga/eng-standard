@@ -11,7 +11,7 @@ import { renderAll, expandSkills, routerText, ROUTE_RULE, rulesetAdvice, SPAWN_R
 import { flakeRuns, flakeVerdict, parseResults, validateFlake } from '../lib/flake.mjs';
 import { glob2re, decide, validatePolicy } from '../lib/e2e-policy.mjs';
 import { engTmp, staleTmpDirs, parseWorktrees, classifyWorktree, TMP_RULE, tmpBase } from '../lib/hygiene.mjs';
-import { audit, corePayloads, minVersion, cmp } from '../lib/stack-audit.mjs';
+import { audit, corePayloads, minVersion, cmp, sydneyMonth } from '../lib/stack-audit.mjs';
 
 const PKG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = process.cwd();
@@ -262,7 +262,7 @@ function stackAudit() {
   }
   if (core) {
     const [type, id] = tgt ? tgt.split(':') : [];
-    console.log(JSON.stringify(corePayloads(std, findings, { space: space || std.core.space, target: tgt ? { type, id } : std.core.followup_target, month: new Date().toISOString().slice(0, 7) }), null, 2));
+    console.log(JSON.stringify(corePayloads(std, findings, { space: space || std.core.space, target: tgt ? { type, id } : std.core.followup_target, month: sydneyMonth() }), null, 2));
   } else if (json) console.log(JSON.stringify({ standard: std.name, findings }, null, 2));
   else console.log(`eng stack-audit: ${findings.filter(f => f.status === 'drift').length} drift finding(s) against ${std.name} (read-only; --core prints Core follow-up payloads, never sends them)`);
   process.exit(findings.some(f => f.status === 'drift') ? 1 : 0);
