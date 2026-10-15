@@ -1,6 +1,6 @@
 # Modern Stack v1
 
-Approved by Matt on Thu 15 Oct 2026 (Sydney), except decision 3, which is a default pending Matt. The machine-readable floors are in [`standard/modern-stack.yml`](../standard/modern-stack.yml). The reasoning lives in Core, in the Tech Stack Decisions Index (`nd72pb884wwtv122vr5b6kctes86fpt1`) and the decision notes it links. This page is the short view.
+Approved by Matt on Thu 15 Oct 2026 (Sydney). The machine-readable floors are in [`standard/modern-stack.yml`](../standard/modern-stack.yml). The reasoning lives in Core, in the Tech Stack Decisions Index (`nd72pb884wwtv122vr5b6kctes86fpt1`) and the decision notes it links. This page is the short view.
 
 | Layer | Standard (floor) | Sanctioned alternative |
 |---|---|---|
@@ -10,7 +10,7 @@ Approved by Matt on Thu 15 Oct 2026 (Sydney), except decision 3, which is a defa
 | Backend | Convex ≥ 1.46 on Convex Cloud | self-hosted Convex on Railway; PlanetScale |
 | Auth | Better Auth ≥ 1.6.33 (below 1.7) + `@convex-dev/better-auth` ≥ 0.12.5 | WorkOS AuthKit (`@workos-inc/node` ≥ 11) |
 | Styling | Tailwind ≥ 4.3.3 + shadcn-svelte, shadcn Trace for agent UI | none |
-| Lint and format | Oxlint ≥ 1.88 (type-aware) + Oxfmt ≥ 0.73; ESLint and Prettier retired (Svelte template linting: decision 3, pending) | none |
+| Lint and format | Oxlint ≥ 1.88 (type-aware) + Oxfmt ≥ 0.73; ESLint and Prettier retired (Svelte template linting not covered: decision 3) | none |
 | Type-check | TS 7.0.2 as the checker, `typescript` 6.0.3 as the API shim | plain TS 7 where no Svelte, Astro, Next or TS-API tools |
 | Test | Vitest ≥ 5.0.4, `convex-test` ≥ 0.0.62, Playwright ≥ 1.64.1 | none |
 | AI | `ai` ≥ 7, OpenRouter provider ≥ 3 | none |
@@ -21,9 +21,9 @@ Approved by Matt on Thu 15 Oct 2026 (Sydney), except decision 3, which is a defa
 
 1. TS 7 is the checker and `typescript` 6.0 stays alongside until TS 7.1 ships a compiler API. The `typescript` 6.0.3 floor is intended. Repos on TS 5.x (Motus, Infotech, Syncsoon) report drift on the first `--core` run. Motus's modernization lane covers that, and there is no exception.
 2. SvelteKit 3 is piloted on Equitus, then Syncsoon. Convex + Better Auth repos wait until the adapter supports Better Auth 1.7.
-3. Default, pending Matt. Svelte template linting is not covered: Oxlint plus svelte-check warnings, no ESLint. Matt has not made this call.
+3. Svelte template linting is not covered: Oxlint plus svelte-check warnings, no ESLint. Matt accepted losing it on 15 Oct 2026.
 4. Equitus's host is undecided. Compare real Vercel + Supabase costs against a Railway estimate first.
-5. Floors live here. A monthly `eng stack-audit` files Core follow-ups. Core keeps the reasoning. The monthly schedule is a follow-up awaiting Matt.
+5. Floors live here. A monthly `eng stack-audit` files Core follow-ups. Core keeps the reasoning. The monthly schedule was approved by Matt on 15 Oct and is scheduled as a T3 task (id recorded in Core/ledger).
 
 ## Recorded exceptions
 

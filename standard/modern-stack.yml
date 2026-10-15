@@ -3,8 +3,7 @@
 # Reasoning lives in Core (core.why); docs/modern-stack.md is the short human view.
 version: 1
 name: Modern Stack v1
-status: APPROVED_EXCEPT_PENDING   # Matt, Thu 15 Oct 2026 (Sydney). Decisions marked DEFAULT_PENDING_MATT are not approved.
-pending_matt: [lint_format.svelte_template_linting]
+status: APPROVED   # Matt, Thu 15 Oct 2026 (Sydney).
 core:
   space: slayga
   why: nd72pb884wwtv122vr5b6kctes86fpt1          # Tech Stack Decisions Index
@@ -45,7 +44,9 @@ layers:
     tool: "Oxlint (type-aware) + Oxfmt through vp check; custom rules through eng lint or Oxlint JS plugins"
     decisions:
       svelte_template_linting:
-        status: DEFAULT_PENDING_MATT   # Matt was not asked; the tower took this default. Retiring eslint-plugin-svelte below follows it.
+        status: APPROVED   # Matt accepts losing Svelte template linting. Retiring eslint-plugin-svelte below follows from it.
+        decided_by: Matt
+        decided_on: 2026-10-15
         default: "not covered; Oxlint plus svelte-check warnings, no ESLint"
     floors: { oxlint: 1.88.0, oxfmt: 0.73.0 }
     replaces: [eslint, typescript-eslint, "@typescript-eslint/parser", "@typescript-eslint/eslint-plugin", eslint-plugin-svelte, prettier, prettier-plugin-svelte, prettier-plugin-tailwindcss]
