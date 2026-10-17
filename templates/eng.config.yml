@@ -164,6 +164,7 @@ e2e:
 hygiene:                          # Disk hygiene (SHIPPING.md §5). eng gate / eng e2e always run with a per-run $ENG_TMP removed on exit.
   tmp_lint: true                  # eng lint rule test-bare-tmpdir: test code may not write to bare os.tmpdir() or /tmp. false = off (say why).
   tmp_max_age_hours: 6            # eng clean: eng-<repo>-* temp dirs older than this (and whose process is gone) are stale.
+  # Clean up on merge or close (SHIPPING.md rule 18, §5): delete the PR's worktrees and evidence; one worktree per PR; no installs in review-only worktrees; shared package store and build cache; media off the box.
 
 flags:
   file: src/flags.ts              # New flags must be false.
