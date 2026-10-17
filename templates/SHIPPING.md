@@ -24,6 +24,7 @@ Company name: Slaytek Systems (never "Slaytek" alone).
 15. **Plans and evidence are committed, never left only in `/tmp`.** A plan, repro, log excerpt or evidence file that a decision rests on goes into the repo (or the PR/issue) before the decision is reported. `/tmp` is scratch and is cleaned (§5); a path there is not evidence.
 16. **A red-`<BASE>` recovery must end in either `<BASE>` green or an explicit escalation.** Escalate to the repo lead (and Matt if the change is Matt-gated), stating the cause, the owner and the next step. A recovery thread may never just finish while `<BASE>` is still red (Motus f193b345, 14 Oct 2026: two recovery threads ended with main still red).
 17. **Before reporting merge or ship status, read live state from GitHub.** PR merged?, merge SHA, `<BASE>`'s latest checks. Never report from memory or a failed command's output (`eng ship next` prints the live merged state and main checks). (Core Edge #257, 14 Oct 2026: a thread reported "no merge SHA yet" when the PR had merged at 5:28 AM AEDT as ec67f831.)
+18. **Clean up on merge or close.** When a PR merges or closes, its worktrees and evidence are deleted. Reuse one worktree per PR, keep evidence to logs, diffs, verdicts and screenshots, share package stores and build caches, keep media off the box, and make temp dirs delete themselves (§5). (Devbox forensics, 17 Oct 2026: about 100 GB of agent leftovers.)
 
 
 ## 1. Pick up and do work
@@ -71,6 +72,15 @@ The shared devbox filled at ~8 GB/hour: per-run test dirs in /tmp were never del
 - **Worktrees.** When a thread settles or its PR merges, the author confirms its commits are pushed (`git status -sb` shows nothing ahead; `git log @{u}..` is empty), then removes its worktree from the main checkout: `eng clean --worktrees --apply`. It removes only worktrees whose branch is merged into `origin/<BASE>` or deleted upstream, AND whose commits are all on the remote, AND that have no uncommitted changes. Everything else is reported, never deleted.
 - **Never delete unpushed or dirty worktrees.** Not with `git worktree remove --force`, not with `rm -rf`. Report them to the repo lead with the path, branch and what is unpushed or uncommitted.
 - `eng clean` is a dry run by default; read its output before adding `--apply`.
+
+**Clean up on merge or close** (devbox forensics, 17 Oct 2026: about 100 GB of agent leftovers).
+
+- **Worktrees.** Use one worktree per PR and reuse it for every review round; do not make a fresh one per round. Delete the PR's task and review worktrees when it merges or closes (`eng clean --worktrees --apply`; the push and clean checks above still apply).
+- **Evidence.** Keep only logs, diffs, verdicts and screenshots. Never copy the repo, `node_modules`, binaries or databases into evidence. Delete local evidence dirs when the PR merges or closes; what a decision rests on is already in the repo or PR (rule 15).
+- **No installs in review-only worktrees.** Do not run a `node_modules` install in a worktree that only reviews. Where an install is needed, use a shared pnpm or bun store with hard links.
+- **One build cache per toolchain.** Share it across lanes and worktrees, never one per lane or worktree. Rust: one `CARGO_TARGET_DIR` or `sccache`, and `CARGO_INCREMENTAL=0` for agents.
+- **Media off the box.** Walkthrough videos and other media go to Drive (or similar), with the link on the PR.
+- **Temp dirs delete themselves** on exit, failure or signal, like `$ENG_TMP` above.
 
 ## 6. CI hygiene
 
