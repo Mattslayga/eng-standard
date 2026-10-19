@@ -3,6 +3,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # self-merge.yml dispatches this on main after each merge: a GITHUB_TOKEN merge fires no push event.
+  workflow_dispatch:
 # One run per workflow+ref. Superseded PR runs are cancelled; main runs never are (post-merge backstop).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
