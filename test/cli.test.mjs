@@ -160,6 +160,18 @@ test('eng init advises non-strict required checks; SHIPPING.md and AGENTS.md car
     assert.match(doc, /`\/tmp` or any other scratch path is never the only copy/);
     assert.match(doc, /A revision updates the same note \(Core keeps the history\); never create a second note such as r2/);
   }
+  // Fixed rules 20 (callback contract) and 21 (hand off by default), approved by Matt, 19 Oct 2026
+  for (const doc of [ship, agents]) {
+    assert.match(doc, /20\. \*\*Callback contract\.\*\* Scripts, CI jobs and T3 threads that wake a bot post only when work is done, blocked or needs a decision\. No progress pings, no all-clears\./);
+    assert.match(doc, /The post is one line: `<status> <thread-id> <one short clause>`, where status is `done`, `blocked` or `needs-decision`/);
+    assert.match(doc, /at most the last 2 messages of the named thread, never the whole history/);
+    assert.match(doc, /If nothing needs a decision or reply, it exits without a message/);
+    assert.match(doc, /21\. \*\*Hand off by default\.\*\* Any coding or bulk job over about 20 steps goes to a T3 thread/);
+    assert.match(doc, /The lead hands it off and ends its own run, then wakes on the rule-20 `done` or `blocked` callback/);
+    assert.match(doc, /not by reading whole threads or diffs/);
+    assert.match(doc, /Decisions for Matt and client-facing communication stay with the lead/);
+    assert.match(doc, /project leads switch on Wed 21 Oct 2026/);
+  }
   assert.equal(eng('drift-check').status, 0);
 });
 

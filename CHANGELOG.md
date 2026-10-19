@@ -2,6 +2,20 @@
 
 Versions follow the commit titles on `main` (`vX.Y.Z: ...`). Minor = new command, config or policy area; patch = rule or doc addition to an existing area. History before 0.7.1 is in `git log`.
 
+## 0.8.3 (20 Oct 2026)
+
+- Fixed rule 20, **Callback contract**, in SHIPPING.md §0 and AGENTS.md (approved by Matt, 19 Oct 2026).
+  - Scripts, CI jobs and T3 threads that wake a bot post only when work is done, blocked or needs a decision. No progress pings, no all-clears.
+  - The post is one line: `<status> <thread-id> <one short clause>`, status `done`, `blocked` or `needs-decision`. Detail goes in a Core note or file, named by its id.
+  - A woken bot reads only that payload and at most the last 2 messages of the named thread. If nothing needs a decision or reply, it exits without a message.
+- Fixed rule 21, **Hand off by default**, in SHIPPING.md §0 and AGENTS.md (approved by Matt, 19 Oct 2026).
+  - Any coding or bulk job over about 20 steps goes to a T3 thread (builder plus independent verifier). The lead hands it off, ends its run and wakes on the rule-20 `done` or `blocked` callback.
+  - Leads check progress with cheap live-state checks (verdict status, CI, `gh pr checks`, `gh pr view`), not by reading whole threads or diffs.
+  - Decisions for Matt and client-facing communication stay with the lead.
+  - Rollout: tested first on Eng Manager's Fleet Control Tower webhook from 19 Oct; project leads switch on Wed 21 Oct 2026.
+- `test/cli.test.mjs` checks rules 20 and 21 in the rendered SHIPPING.md and AGENTS.md.
+- Docs and rendered text only; no CLI behaviour change.
+
 ## 0.8.2 (19 Oct 2026)
 
 - Fixed rule 19, **Briefs live in Core**, in SHIPPING.md §0 and AGENTS.md (approved by Matt, 19 Oct 2026). Verdicts and audits must be able to see exactly what a builder was told, even after the devbox restarts or `/tmp` is cleaned.
