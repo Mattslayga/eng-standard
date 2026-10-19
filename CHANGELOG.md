@@ -2,6 +2,15 @@
 
 Versions follow the commit titles on `main` (`vX.Y.Z: ...`). Minor = new command, config or policy area; patch = rule or doc addition to an existing area. History before 0.7.1 is in `git log`.
 
+## 0.8.2 (19 Oct 2026)
+
+- Fixed rule 19, **Briefs live in Core**, in SHIPPING.md §0 and AGENTS.md (approved by Matt, 19 Oct 2026). Verdicts and audits must be able to see exactly what a builder was told, even after the devbox restarts or `/tmp` is cleaned.
+  - A brief one agent hands another (builder, reviewer or verifier thread) is written first as a note in the repo's Core space tagged `brief`; the worker's prompt names the Core note id and may paste the brief inline too.
+  - `/tmp` or any other scratch path is never the only copy; a local file is only a convenience copy of the Core note.
+  - A revision updates the same note (Core keeps revision history); no second note for r2.
+- `test/cli.test.mjs` checks rule 19 in the rendered SHIPPING.md and AGENTS.md.
+- Docs and rendered text only; no CLI behaviour change.
+
 ## 0.8.1 (19 Oct 2026)
 
 - Fixed rule 18, **Clean up on merge or close**, in SHIPPING.md §0 and AGENTS.md, with details in SHIPPING.md §5 (approved by Matt, 17 Oct 2026). A devbox forensics pass found about 100 GB of agent leftovers.

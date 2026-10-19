@@ -153,6 +153,13 @@ test('eng init advises non-strict required checks; SHIPPING.md and AGENTS.md car
   }
   assert.match(ship, /two recovery threads ended with main still red/);
   assert.match(agents, /eng ship next` prints the live merged state and main checks/);
+  // Fixed rule 19: briefs live in Core (approved by Matt, 19 Oct 2026)
+  for (const doc of [ship, agents]) {
+    assert.match(doc, /19\. \*\*Briefs live in Core\.\*\* Any brief one agent hands another \(a builder, reviewer or verifier thread\) is written to Core first, as a note in the repo's Core space tagged `brief`/);
+    assert.match(doc, /prompt names the Core note id/);
+    assert.match(doc, /`\/tmp` or any other scratch path is never the only copy/);
+    assert.match(doc, /A revision updates the same note \(Core keeps the history\); never create a second note such as r2/);
+  }
   assert.equal(eng('drift-check').status, 0);
 });
 
