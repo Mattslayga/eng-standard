@@ -807,13 +807,33 @@ function verdictsFor(pid) {
 }
 function verdictRecord(result) {
   const cfg = loadConfig(); clean();
-  if (!['PASS', 'PASS+NOTES', 'FAIL'].includes(result)) die('usage: eng verdict PASS|PASS+NOTES|FAIL --by <agent-id> --family <model-family> [--evidence <path>]');
+  if (!['PASS', 'PASS+NOTES', 'FAIL'].includes(result)) die('usage: eng verdict PASS|PASS+NOTES|FAIL --by <agent-id> --family <model-family> [--evidence <path>] [--pr <n>]');
   const by = arg('--by'), family = arg('--family');
   if (!by || !family) die('verdict: --by <agent-id> and --family <model-family> are required');
   const H = head(), rec = { sha: H, base: sh(`git merge-base ${baseRef(cfg)} HEAD`), patch_id: patchId(cfg), result, by, family, evidence: arg('--evidence'), at: new Date().toISOString() };
   sh(`git notes --ref ${VNOTES} append -m '${JSON.stringify(rec).replaceAll("'", "'\\''")}' ${H}`);
   if (result === 'FAIL') logMistake('verdict:FAIL', `FAIL by ${by} (${family})${rec.evidence ? ', evidence ' + rec.evidence : ''}`, 'verdict');
   console.log(`eng verdict: recorded ${result} by ${by} (${family}) on ${H.slice(0, 8)}, patch-id ${rec.patch_id.slice(0, 12)}`);
+}
+// eng verdict status --pr <n>: post the verdict to GitHub as commit status `verdict` on the PR's exact head SHA, so a
+// ruleset and the self-merge workflow can see it. success only when `eng verdict check` passes (an independent PASS for
+// this patch-id); failure otherwise. Local HEAD must be the PR's live head: the status binds to that SHA.
+function prHead(n) {
+  const pr = JSON.parse(sh(`gh pr view ${Number(n)} --json headRefOid,state`));
+  if (pr.state !== 'OPEN') die(`verdict status: PR #${n} is ${pr.state}`);
+  if (pr.headRefOid !== head()) die(`verdict status: local HEAD ${head().slice(0, 8)} is not PR #${n} head ${pr.headRefOid.slice(0, 8)}; run gh pr checkout ${n} && git pull --ff-only`);
+}
+function verdictStatus(n) {
+  if (!/^\d+$/.test(n || '')) die('usage: eng verdict status --pr <n>');
+  loadConfig(); clean(); prHead(n);
+  const H = head(), r = spawnSync(process.execPath, [fileURLToPath(import.meta.url), 'verdict', 'check'], { cwd: ROOT, encoding: 'utf8' });
+  const out = (r.stdout + r.stderr).trim(), state = r.status === 0 ? 'success' : 'failure';
+  if (out) console.log(out);
+  const desc = (out.split('\n').filter(Boolean).at(-1) || '').replace(/^eng(: FAIL)?:? */, '').slice(0, 140);
+  const p = spawnSync('gh', ['api', `repos/{owner}/{repo}/statuses/${H}`, '-f', `state=${state}`, '-f', 'context=verdict', '-f', `description=${desc}`], { cwd: ROOT, encoding: 'utf8' });
+  if (p.status !== 0) die(`verdict status: could not post: ${(p.stderr || p.stdout).trim()}`);
+  console.log(`eng verdict status: posted ${state} (context verdict) on ${H} for PR #${n}`);
+  if (state !== 'success') process.exit(1);
 }
 function verdictCheck() {
   const cfg = loadConfig(), H = head(), pid = patchId(cfg);
@@ -922,8 +942,8 @@ function ciVerdict(ids) { // Buildkite: read each step outcome; anything but "pa
 }
 
 const [cmd, ...a] = process.argv.slice(2);
-const cmds = { verdict: () => a[0] === 'check' ? verdictCheck() : verdictRecord(a[0]), init, sync, 'drift-check': driftCheck, 'stack-check': stackCheck, 'stack-audit': stackAudit, lint, gate, e2e, conform, 'find-laws': findLaws, laws: () => a[0] === '--write' ? lawsWrite() : a[0] === 'approve' ? lawsApprove(a[1], a.slice(2).join(' ')) : laws(),
+const cmds = { verdict: () => a[0] === 'check' ? verdictCheck() : a[0] === 'status' ? verdictStatus(arg('--pr')) : (arg('--pr') && prHead(arg('--pr')), verdictRecord(a[0]), arg('--pr') && verdictStatus(arg('--pr'))), init, sync, 'drift-check': driftCheck, 'stack-check': stackCheck, 'stack-audit': stackAudit, lint, gate, e2e, conform, 'find-laws': findLaws, laws: () => a[0] === '--write' ? lawsWrite() : a[0] === 'approve' ? lawsApprove(a[1], a.slice(2).join(' ')) : laws(),
   rules: () => a[0] === 'prove' ? rulesProve() : die('usage: eng rules prove'),
   verify: () => a[0] === 'create' ? verifyCreate(a[1]) : a[0] === 'maintain' ? verifyMaintain() : die('usage: eng verify create <id> | maintain'),
   mistake: () => mistake(a[0], a.slice(1).join(' ')), retro, ship: () => a[0] === 'next' ? shipNext() : die('usage: eng ship next'), 'launch-check': launchCheck, fallow: fallowGate, 'ci-verdict': () => ciVerdict(a), 'e2e-required': e2eRequired, clean: cleanCmd };
-(cmds[cmd] || (() => { console.log('eng init | sync | drift-check | stack-check | stack-audit [<name>=<path>...] [--ref <ref>] [--standard <file>] [--json | --core [--core-space <s>] [--core-target <type>:<id>]] | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | ship next | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e [--if-required] [--flake-check [--runs N] [--results pass,fail,...]] | e2e-required [--event pr|main|nightly] [--base <ref>] [--files a,b] [--labels a,b] [--json] [--exit-code] | gate | clean [--older-than <h>] [--worktrees [--tmp]] [--no-fetch] [--apply]'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();
+(cmds[cmd] || (() => { console.log('eng init | sync | verdict PASS|PASS+NOTES|FAIL --by <id> --family <f> [--evidence <p>] [--pr <n>] | verdict check | verdict status --pr <n> | drift-check | stack-check | stack-audit [<name>=<path>...] [--ref <ref>] [--standard <file>] [--json | --core [--core-space <s>] [--core-target <type>:<id>]] | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | ship next | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e [--if-required] [--flake-check [--runs N] [--results pass,fail,...]] | e2e-required [--event pr|main|nightly] [--base <ref>] [--files a,b] [--labels a,b] [--json] [--exit-code] | gate | clean [--older-than <h>] [--worktrees [--tmp]] [--no-fetch] [--apply]'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();
