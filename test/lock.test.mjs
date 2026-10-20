@@ -7,6 +7,7 @@ import { engTmp } from '../lib/hygiene.mjs';
 
 const ENG = path.resolve(new URL('../bin/eng.mjs', import.meta.url).pathname);
 const TPL = path.resolve(new URL('../templates/eng.config.yml', import.meta.url).pathname);
+const VERSION = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 const tmp = engTmp('lock-tests');
 let dir;
 const command = (bin, args) => spawnSync(bin, args, { cwd: dir, encoding: 'utf8', env: tmp.env });
@@ -35,6 +36,61 @@ beforeEach(() => {
   write('.eng/checks/mm-existing.sh', '#!/usr/bin/env bash\nexit 0\n');
   sync();
 });
+
+test('sync round-trips a sorted path list without content hashes', () => {
+  const initial = read('.eng/lock.json');
+  const saved = lock();
+  assert.ok(Array.isArray(saved.files));
+  assert.ok(saved.files.every(p => typeof p === 'string'));
+  assert.deepEqual(saved.files, [...new Set(saved.files)].sort());
+  assert.ok(saved.files.includes('AGENTS.md'));
+  assert.ok(saved.files.includes('SHIPPING.md'));
+  assert.deepEqual(Object.keys(saved).sort(), ['config_hash', 'files', 'links', 'package']);
+  assert.equal(saved.package, VERSION);
+  assert.match(saved.config_hash, /^[a-f0-9]{64}$/);
+  assert.ok(Array.isArray(saved.links));
+  assert.match(sync(), /eng sync: no changes/);
+  assert.equal(read('.eng/lock.json'), initial);
+  const drift = eng('drift-check');
+  assert.equal(drift.status, 0, drift.stdout + drift.stderr);
+  write('SHIPPING.md', read('SHIPPING.md') + '\nhand edit\n');
+  const edited = eng('drift-check');
+  assert.equal(edited.status, 1, edited.stdout + edited.stderr);
+  assert.match(edited.stderr, /SHIPPING\.md: differs from what eng\.config\.yml renders/);
+});
+
+test('sync migrates a legacy hash map and preserves config and link metadata', () => {
+  const expected = lock();
+  const paths = [...expected.files];
+  write('.eng/lock.json', JSON.stringify({ ...expected, package: '0.8.3',
+    files: Object.fromEntries(paths.reverse().map(p => [p, '0'.repeat(64)])) }));
+  sync();
+  assert.deepEqual(lock(), expected);
+  assert.match(sync(), /eng sync: no changes/);
+});
+
+for (const format of ['path list', 'legacy hash map']) {
+  test(`lint and pruning accept the ${format}`, () => {
+    const saved = lock();
+    const paths = [...saved.files, 'retired.test.mjs'];
+    saved.files = format === 'path list' ? paths : Object.fromEntries(paths.map(p => [p, '0'.repeat(64)]));
+    write('.eng/lock.json', JSON.stringify(saved));
+    write('retired.test.mjs', 'const d = os.tmpdir();\n');
+    write('0', 'unmanaged file\n');
+    const clean = eng('lint');
+    assert.equal(clean.status, 0, clean.stdout + clean.stderr);
+    write('own.test.mjs', 'const d = os.tmpdir();\n');
+    const own = eng('lint');
+    assert.equal(own.status, 1, own.stdout + own.stderr);
+    assert.match(own.stderr, /own\.test\.mjs:1: \[test-bare-tmpdir\]/);
+    assert.doesNotMatch(own.stderr, /retired\.test\.mjs/);
+    sync();
+    assert.equal(fs.existsSync(path.join(dir, 'retired.test.mjs')), false);
+    assert.equal(read('0'), 'unmanaged file\n');
+    assert.equal(read('own.test.mjs'), 'const d = os.tmpdir();\n');
+    assert.ok(!lock().files.includes('retired.test.mjs'));
+  });
+}
 
 test('Motus repro: unrelated check additions produce identical locks and merge cleanly', () => {
   git('add', '-A');

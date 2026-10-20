@@ -2,6 +2,13 @@
 
 Versions follow the commit titles on `main` (`vX.Y.Z: ...`). Minor = new command, config or policy area; patch = rule or doc addition to an existing area. History before 0.7.1 is in `git log`.
 
+## 0.8.4 (20 Oct 2026)
+
+- `eng sync` stores a sorted list of generated paths in `.eng/lock.json`, without per-file content hashes. Independent check additions no longer conflict on the AGENTS.md hash.
+- Deprecated the legacy `files` hash map. This release still accepts it for lint and pruning, and the next `eng sync` rewrites it as a path list. Consumers should sync during this compatibility release.
+- `eng drift-check` still re-renders and compares generated content directly. Config hashes, package versions and link paths remain in the lock.
+- Added CLI regression tests for stable locks and a clean two-branch merge, both lock formats, migration, pruning, lint ownership and hand-edited generated content.
+
 ## 0.8.3 (20 Oct 2026)
 
 - Fixed rule 20, **Callback contract**, in SHIPPING.md §0 and AGENTS.md (approved by Matt, 19 Oct 2026).

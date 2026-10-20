@@ -51,6 +51,7 @@ function validate(c) {
 
 const cfgHash = () => sha256(fs.readFileSync(path.join(ROOT, 'eng.config.yml'), 'utf8'));
 const readOr = (p, d = null) => fs.existsSync(path.join(ROOT, p)) ? fs.readFileSync(path.join(ROOT, p), 'utf8') : d;
+const lockFiles = lock => Array.isArray(lock.files) ? lock.files : Object.keys(lock.files || {});
 
 function render(cfg) {
   const files = renderAll(cfg, readOr('AGENTS.md'));
@@ -86,14 +87,14 @@ function sync() {
   }
   // Prune files (and skill symlinks) a previous sync generated that the config no longer renders.
   const old = JSON.parse(readOr('.eng/lock.json', '{}'));
-  for (const p of Object.keys(old.files || {})) if (!(p in files) && fs.existsSync(path.join(ROOT, p)) && !fs.lstatSync(path.join(ROOT, p)).isSymbolicLink()) { fs.rmSync(path.join(ROOT, p)); console.log(`  removed ${p}`); changed++; }
+  for (const p of lockFiles(old)) if (!(p in files) && fs.existsSync(path.join(ROOT, p)) && !fs.lstatSync(path.join(ROOT, p)).isSymbolicLink()) { fs.rmSync(path.join(ROOT, p)); console.log(`  removed ${p}`); changed++; }
   const links = new Set(claudeLinks(cfg).map(([l]) => l));
   const cl = path.join(ROOT, '.claude/skills');
   const ours = fs.existsSync(cl) ? fs.readdirSync(cl).map(n => `.claude/skills/${n}`).filter(l => { try { return fs.readlinkSync(path.join(ROOT, l)).startsWith(`../../${cfg.agents.skills_dir}/`) && !fs.existsSync(path.join(ROOT, l)); } catch { return false; } }) : [];
   for (const l of new Set([...(old.links || []), ...ours])) if (!links.has(l)) { fs.rmSync(path.join(ROOT, l), { force: true }); console.log(`  unlinked ${l}`); changed++; }
   for (const d of [cfg.agents.skills_dir]) { const walk = x => { if (!fs.existsSync(x)) return; for (const e of fs.readdirSync(x, { withFileTypes: true })) if (e.isDirectory()) { walk(path.join(x, e.name)); if (!fs.readdirSync(path.join(x, e.name)).length) fs.rmdirSync(path.join(x, e.name)); } }; walk(path.join(ROOT, d)); }
   const lock = JSON.stringify({ links: [...links].sort(), config_hash: cfgHash(), package: JSON.parse(fs.readFileSync(path.join(PKG, 'package.json'))).version,
-    files: Object.fromEntries(Object.entries(files).map(([p, c]) => [p, sha256(c)]).sort()) }, null, 2) + '\n';
+    files: Object.keys(files).sort() }, null, 2) + '\n';
   if (readOr('.eng/lock.json') !== lock) { fs.mkdirSync(path.join(ROOT, '.eng'), { recursive: true }); fs.writeFileSync(path.join(ROOT, '.eng/lock.json'), lock); console.log('  wrote .eng/lock.json'); changed++; }
   console.log(changed ? `eng sync: ${changed} change(s)` : 'eng sync: no changes');
 }
@@ -295,7 +296,7 @@ function lint() {
   const files = sh('git ls-files --cached --others --exclude-standard').split('\n').filter(f => f && !f.startsWith('.eng/rule-proofs/') && fs.existsSync(path.join(ROOT, f)));
   // Files eng sync writes (drift-tracked: rendered + vendored) are owned by the standard, not this repo. The drift
   // check forbids editing them, so repo lint rules must not flag them either (fix such hits upstream in eng-standard).
-  const managed = new Set([...Object.keys(render(loadConfig())), ...Object.keys(JSON.parse(readOr('.eng/lock.json', '{}')).files || {})]);
+  const managed = new Set([...Object.keys(render(loadConfig())), ...lockFiles(JSON.parse(readOr('.eng/lock.json', '{}')))]);
   const own = files.filter(f => !managed.has(f));
   const hits = builtinRules(cfg).flatMap(r => lintFiles(r, own, ROOT));
   if (hits.length) die(`lint:\n  ${hits.join('\n  ')}`);
