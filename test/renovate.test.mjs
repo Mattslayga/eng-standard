@@ -150,6 +150,15 @@ test('eng renovate end to end on a brownfield repo: audit, apply, baseline, scan
   git('add -A'); git('commit -qm step2');
   r = eng('renovate', 'scan');
   assert.equal(r.status, 0, out(r)); assert.match(r.stdout, /secret-filename: 0 new, 2 baselined/);
+  const co = fs.readFileSync(path.join(dir, '.github/CODEOWNERS'), 'utf8');
+  fs.appendFileSync(path.join(dir, '.github/CODEOWNERS'), '/renovation/baselines/lint.json\n');
+  r = eng('renovate', 'scan');
+  assert.equal(r.status, 1, out(r)); assert.match(r.stderr, /renovation\/baselines\/lint\.json has no CODEOWNERS owner/, 'each baseline file is checked, not a dummy path');
+  fs.writeFileSync(path.join(dir, '.github/CODEOWNERS'), co);
+  put('CODEOWNERS', '/src/ @someone\n');
+  r = eng('renovate', 'scan');
+  assert.equal(r.status, 0, out(r) + ' .github/CODEOWNERS wins over a root CODEOWNERS (GitHub lookup order)');
+  fs.rmSync(path.join(dir, 'CODEOWNERS'));
   assert.match(r.stdout, /NOTICE baseline edited on this branch: .*needs review by @lead/);
 
   put('config/prod-credentials.json', '{}\n');
