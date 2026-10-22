@@ -195,6 +195,14 @@ test('eng renovate ci-preflight and prove: needs-decision exits 3; a timeout rec
   assert.equal(r.status, 3, out(r)); assert.match(r.stdout, /NOT PROVED \(blocked\)/, '--gate on a passed gate never turns a blocked ledger into PROVED');
   r = eng('renovate', 'prove', '--gate', 'quick', '--gate', 'heavy', '--timeout', '30');
   assert.equal(r.status, 0, out(r)); assert.match(r.stdout, /resumed from renovation\/proof/); assert.match(r.stdout, /PROVED/);
+  fs.writeFileSync(p, cfg.replace(/^renovation:\n/m, 'renovation:\n  proof:\n    gates:\n      - { name: mutate, command: "echo x >> SHIPPING.md", timeout_s: 30 }\n'));
+  git('add -A'); git('commit -qm mutating-gate');
+  r = eng('renovate', 'prove');
+  assert.equal(r.status, 1, out(r)); assert.match(r.stderr, /gate mutate changed the working tree/);
+  git('checkout -q SHIPPING.md');
+  r = eng('renovate', 'prove');
+  assert.equal(r.status, 1, out(r)); assert.doesNotMatch(r.stdout, /resumed/, 'a gate that edited the tree is re-run, never resumed as a pass');
+  git('checkout -q SHIPPING.md');
   fs.writeFileSync(p, cfg.replace(/^renovation:\n/m, 'renovation:\n  proof:\n    gates:\n      - { name: quick, command: "true", timeout_s: 30 }\n      - { name: quick, command: "false", timeout_s: 30 }\n'));
   assert.match(out(eng('renovate', 'prove')), /duplicate gate name quick/);
   fs.writeFileSync(p, cfg);

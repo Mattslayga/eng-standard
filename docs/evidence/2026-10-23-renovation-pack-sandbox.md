@@ -1,23 +1,23 @@
 # Renovation pack proof on eng-sandbox (spec v1 §10)
 
-Run: `bash docs/evidence/2026-10-23-renovation-pack-sandbox.sh /home/dev/.t3/projects/eng-sandbox` from this checkout, 2026-10-22 21:33 UTC (rerun after the round-2 verifier fixes). eng-sandbox has no git remote, so this is a local proof only; no remote PR proof was run there.
+Run: `bash docs/evidence/2026-10-23-renovation-pack-sandbox.sh /home/dev/.t3/projects/eng-sandbox` from this checkout, 2026-10-22 21:41 UTC (rerun after the round-3 verifier fix). eng-sandbox has no git remote, so this is a local proof only; no remote PR proof was run there.
 
 The secret-filename finding in step 4 is a labelled fixture commit on the proof branch: the sandbox has no natural pre-existing finding. The verdict in step 8 is recorded by the script under a stand-in verifier identity to exercise the receipt path; the eng-standard PR verdict comes from an independent verifier.
 
 ```text
-eng-standard 0.9.0 at 1e23028; sandbox /home/dev/.t3/projects/eng-sandbox ref exp/ticketstore-effect-vs-ts
+eng-standard 0.9.0 at dbb3ad8; sandbox /home/dev/.t3/projects/eng-sandbox ref exp/ticketstore-effect-vs-ts
 
 == 0. shared checkout before
    mode 775; origin: 0 remote(s)
 
 == 1. isolated launch (spec §7)
-     worktree /tmp/eng-launch-eng-sandbox-dYBFjt/wt (mode 700) at exp/ticketstore-effect-vs-ts 31980427
-     tmp      /tmp/eng-launch-eng-sandbox-dYBFjt/tmp (mode 700)
+     worktree /tmp/eng-launch-eng-sandbox-yAEGZC/wt (mode 700) at exp/ticketstore-effect-vs-ts 31980427
+     tmp      /tmp/eng-launch-eng-sandbox-yAEGZC/tmp (mode 700)
      shared checkout /home/dev/.t3/projects/eng-sandbox left at mode 775
-   eng launch: ready. cd /tmp/eng-launch-eng-sandbox-dYBFjt/wt && export TMPDIR=/tmp/eng-launch-eng-sandbox-dYBFjt/tmp   (remove: eng launch down /tmp/eng-launch-eng-sandbox-dYBFjt)
+   eng launch: ready. cd /tmp/eng-launch-eng-sandbox-yAEGZC/wt && export TMPDIR=/tmp/eng-launch-eng-sandbox-yAEGZC/tmp   (remove: eng launch down /tmp/eng-launch-eng-sandbox-yAEGZC)
    OK   launch dir, worktree and tmp are 0700
    OK   shared checkout still mode 775
-   branch renovation-proof/20261022T213317Z
+   branch renovation-proof/20261022T214052Z
 
 == 2. audit (spec §1): read-only outside renovation/
      wrote renovation/audit.json
@@ -49,7 +49,7 @@ eng-standard 0.9.0 at 1e23028; sandbox /home/dev/.t3/projects/eng-sandbox ref ex
      wrote eng.config.yml
      wrote SHIPPING.md
      wrote renovation/divergences.md
-   eng renovate apply docs-config: done. Review the diff, commit it on renovation-proof/20261022T213317Z and open a normal PR; it goes through this repo's gates and verifier. The pack never merges.
+   eng renovate apply docs-config: done. Review the diff, commit it on renovation-proof/20261022T214052Z and open a normal PR; it goes through this repo's gates and verifier. The pack never merges.
    OK   apply docs-config (exit 0)
    eng renovate render --check: PASS (2 files match)
    OK   render --check right after apply (exit 0)
@@ -70,7 +70,7 @@ eng-standard 0.9.0 at 1e23028; sandbox /home/dev/.t3/projects/eng-sandbox ref ex
      baseline lint: 0 entries (+0 -0)
      fallow: no fallow: section, skipped
      wrote eng.config.yml
-   eng renovate apply baselines: done. Review the diff, commit it on renovation-proof/20261022T213317Z and open a normal PR; it goes through this repo's gates and verifier. The pack never merges.
+   eng renovate apply baselines: done. Review the diff, commit it on renovation-proof/20261022T214052Z and open a normal PR; it goes through this repo's gates and verifier. The pack never merges.
    OK   apply baselines (exit 0)
      secret-filename: 0 new, 1 baselined, 0 fixed since the baseline
      lint: 0 new, 0 baselined, 0 fixed since the baseline
@@ -92,7 +92,7 @@ eng-standard 0.9.0 at 1e23028; sandbox /home/dev/.t3/projects/eng-sandbox ref ex
        branch main: add required status checks eng-ci-preflight, eng-scan, eng-lint, eng-render
        strict_required_status_checks_policy: false (renovation.merge_policy.strict)
      wrote eng.config.yml
-   eng renovate apply gates-warn: done. Review the diff, commit it on renovation-proof/20261022T213317Z and open a normal PR; it goes through this repo's gates and verifier. The pack never merges.
+   eng renovate apply gates-warn: done. Review the diff, commit it on renovation-proof/20261022T214052Z and open a normal PR; it goes through this repo's gates and verifier. The pack never merges.
    OK   apply gates-warn (exit 0)
      bun: repo pins 1.4.4, image sandbox-ci-v6 on queue sandbox-linux-small (buildkite) has 1.2.19. An authorized CI-image operator builds or selects an image with these versions and repoints the queue; the pack does not build images
    eng renovate ci-preflight: needs-decision: ci-image-operator (image sandbox-ci-v6, queue sandbox-linux-small)
@@ -102,7 +102,7 @@ eng-standard 0.9.0 at 1e23028; sandbox /home/dev/.t3/projects/eng-sandbox ref ex
    eng renovate apply 4. gates-enforce: Gates enforce: new findings fail, baselined ones pass
      wrote eng.config.yml
      wrote eng.config.yml
-   eng renovate apply gates-enforce: done. Review the diff, commit it on renovation-proof/20261022T213317Z and open a normal PR; it goes through this repo's gates and verifier. The pack never merges.
+   eng renovate apply gates-enforce: done. Review the diff, commit it on renovation-proof/20261022T214052Z and open a normal PR; it goes through this repo's gates and verifier. The pack never merges.
    OK   apply gates-enforce (exit 0)
 
 == 8. step 5 verifier + receipt (spec §5)
@@ -110,16 +110,16 @@ eng-standard 0.9.0 at 1e23028; sandbox /home/dev/.t3/projects/eng-sandbox ref ex
      wrote eng.config.yml
      wrote .gitignore
      wrote eng.config.yml
-   eng renovate apply verifier: done. Review the diff, commit it on renovation-proof/20261022T213317Z and open a normal PR; it goes through this repo's gates and verifier. The pack never merges.
+   eng renovate apply verifier: done. Review the diff, commit it on renovation-proof/20261022T214052Z and open a normal PR; it goes through this repo's gates and verifier. The pack never merges.
    OK   apply verifier (exit 0)
    (verdict below is recorded by this script under a stand-in verifier identity to prove the receipt mechanics; the PR's real verdict comes from an independent verifier)
-   eng verdict: recorded PASS by renovation-proof-verifier (gpt) on a29a1177, patch-id 95c0eac9a957
+   eng verdict: recorded PASS by renovation-proof-verifier (gpt) on 644a7136, patch-id 95c0eac9a957
    OK   verdict records provider (exit 0)
      patch-id 95c0eac9a957; code written by renovation-proof-builder, matt@slayteksystems.com (families: claude)
-   eng verdict: PASS (PASS by renovation-proof-verifier (gpt) on a29a1177)
+   eng verdict: PASS (PASS by renovation-proof-verifier (gpt) on 644a7136)
    OK   verdict check accepts it (different family from the builder) (exit 0)
-     verdict PASS by renovation-proof-verifier (gpt, openai) on a29a1177
-   eng renovate receipt: DRAFT core-edge.ship-receipt/v1 for PR #1 head a29a1177 -> renovation/receipts/a29a1177954c1cf1c0da6ae4a763b927059d33a5.md. Not posted: the lead or its lane posts it as a COMMENT review on this exact head.
+     verdict PASS by renovation-proof-verifier (gpt, openai) on 644a7136
+   eng renovate receipt: DRAFT core-edge.ship-receipt/v1 for PR #1 head 644a7136 -> renovation/receipts/644a713660de261894ca38c64e33296248f8d8b8.md. Not posted: the lead or its lane posts it as a COMMENT review on this exact head.
    OK   receipt draft (exit 0)
    OK   receipt binds head, base tip, head tree and providers
      verdict PASS on this head
@@ -133,15 +133,15 @@ eng-standard 0.9.0 at 1e23028; sandbox /home/dev/.t3/projects/eng-sandbox ref ex
      e2e flows: author them with the e2e-flow skill from templates/e2e; eng renovate prove records each gate in renovation/proof/<sha>.json
      wrote eng.config.yml
      wrote SHIPPING.md
-   eng renovate apply e2e: done. Review the diff, commit it on renovation-proof/20261022T213317Z and open a normal PR; it goes through this repo's gates and verifier. The pack never merges.
+   eng renovate apply e2e: done. Review the diff, commit it on renovation-proof/20261022T214052Z and open a normal PR; it goes through this repo's gates and verifier. The pack never merges.
    OK   apply e2e (exit 0)
-     pass     test       1797ms
-     blocked(timeout) heavy      1002ms
-   eng renovate prove: NOT PROVED (blocked) on 6887de01 -> renovation/proof/6887de01e74a5ec73a70f8d6d259302648279f63.json; re-run to resume (passed gates are kept), --force to redo all
+     pass     test       2156ms
+     blocked(timeout) heavy      1009ms
+   eng renovate prove: NOT PROVED (blocked) on fb4a432b -> renovation/proof/fb4a432bf4a8c47a1877d75a273b4e145624ff8b.json; re-run to resume (passed gates are kept), --force to redo all
    OK   prove: heavy gate times out, recorded blocked, NOT PROVED (exit 3)
-     pass     test       (resumed from renovation/proof/6887de01e74a5ec73a70f8d6d259302648279f63.json)
-     pass     heavy      3004ms
-   eng renovate prove: PROVED on 6887de01 -> renovation/proof/6887de01e74a5ec73a70f8d6d259302648279f63.json
+     pass     test       (resumed from renovation/proof/fb4a432bf4a8c47a1877d75a273b4e145624ff8b.json)
+     pass     heavy      3010ms
+   eng renovate prove: PROVED on fb4a432b -> renovation/proof/fb4a432bf4a8c47a1877d75a273b4e145624ff8b.json
    OK   prove resumes: test kept, heavy re-run with a longer timeout (exit 0)
    eng: FAIL prove: working tree not clean; commit first so the ledger proves a real SHA
    OK   prove refuses an uncommitted gate edit (the ledger binds a commit) (exit 1)
@@ -151,7 +151,7 @@ eng-standard 0.9.0 at 1e23028; sandbox /home/dev/.t3/projects/eng-sandbox ref ex
    eng renovate apply 7. launch: Isolated launch contract: private 0700 worktree and tmp
      wrote eng.config.yml
      wrote eng.config.yml
-   eng renovate apply launch: done. Review the diff, commit it on renovation-proof/20261022T213317Z and open a normal PR; it goes through this repo's gates and verifier. The pack never merges.
+   eng renovate apply launch: done. Review the diff, commit it on renovation-proof/20261022T214052Z and open a normal PR; it goes through this repo's gates and verifier. The pack never merges.
    OK   apply launch (exit 0)
 
 == 11. drift-check (spec §7)
@@ -194,10 +194,10 @@ eng-standard 0.9.0 at 1e23028; sandbox /home/dev/.t3/projects/eng-sandbox ref ex
    OK   plan (exit 0)
 
 == 13. cleanup
-   eng launch down: removed /tmp/eng-launch-eng-sandbox-dYBFjt/wt and /tmp/eng-launch-eng-sandbox-dYBFjt
+   eng launch down: removed /tmp/eng-launch-eng-sandbox-yAEGZC/wt and /tmp/eng-launch-eng-sandbox-yAEGZC
    OK   launch down (no --force) (exit 0)
    OK   shared checkout still mode 775
-   proof branch kept in the sandbox repo: renovation-proof/20261022T213317Z
+   proof branch kept in the sandbox repo: renovation-proof/20261022T214052Z
 
 RESULT: PASS (0 failed check(s))
 ```
