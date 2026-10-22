@@ -314,7 +314,8 @@ function lint() {
     console.log(`  baseline ${baselinePath('lint')}: ${c.known.length} baselined, ${c.gone.length} fixed since the baseline`);
     hits = hits.filter(h => fresh.has(lintFindings([h])[0].fingerprint));
   }
-  if (hits.length && loadConfig().renovation?.gates?.mode === 'warn') return console.log(`  ${hits.map(hitText).join('\n  ')}\neng lint: WARN (renovation.gates.mode warn; ${hits.length} new finding(s) would fail in enforce mode)`);
+  if (hits.length && cfg.renovation?.gates?.mode === 'warn')  // mode from the config the rules came from: a branch cannot switch the base to warn
+    return console.log(`  ${hits.map(hitText).join('\n  ')}\neng lint: WARN (renovation.gates.mode warn; ${hits.length} new finding(s) would fail in enforce mode)`);
   if (hits.length) die(`lint:\n  ${hits.map(hitText).join('\n  ')}`);
   console.log(`eng lint: PASS (${builtinRules(cfg).length} rules${bl ? ', new findings only' : ''})`);
 }

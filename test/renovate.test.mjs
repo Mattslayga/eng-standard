@@ -78,6 +78,8 @@ test('merge policy: strict + behind refreshes first; patch-id carry keeps the ve
   assert.equal(carried.state, 'receipt');
   assert.match(carried.why, /carried from aaaaaaaa by patch-id/);
   assert.equal(refreshPlan({ strict: true, carry: 'none', behind: 0, head: 'b'.repeat(40), patchId: 'p1', verdicts: v }).state, 'reverify');
+  const failedLater = refreshPlan({ strict: false, behind: 0, head: 'b'.repeat(40), patchId: 'p1', verdicts: [...v, { sha: 'b'.repeat(40), patch_id: 'p1', result: 'FAIL', by: 'v2' }] });
+  assert.equal(failedLater.state, 'reverify'); assert.match(failedLater.why, /latest verdict for this change is FAIL by v2/);
   assert.match(refreshPlan({ strict: false, behind: 3, head: 'a'.repeat(40), patchId: 'p1', verdicts: v }).why, /not required \(non-strict\)/);
 });
 
@@ -103,6 +105,9 @@ test('CODEOWNERS coverage, local rules kept, divergences rendered, fixed step or
   const s = withLocalRules('# SHIPPING.md: how a x change gets to production\n', '# Old rules\nstrict\n');
   assert.match(s, new RegExp(`${LOCAL_BEGIN}\\n# Old rules\\nstrict\\n<!-- renovation:local:end -->`));
   assert.equal(withLocalRules('# SHIPPING.md: how a x change gets to production\n', s), s);
+  const plain = '# SHIPPING.md: how a x change gets to production\n';
+  assert.match(withLocalRules(plain, plain + 'Local: strict up-to-date required.\n'), /renovation:local -->\n# SHIPPING\.md: how a x[\s\S]*Local: strict up-to-date required\.\n<!-- renovation:local:end/, 'a generated SHIPPING.md with local edits keeps them');
+  assert.match(withLocalRules(plain, plain), new RegExp(`${LOCAL_BEGIN}\n${'<!-- renovation:local:end -->'}`));
   assert.match(divergencesMd({ renovation: { policy_owner: '@lead', merge_policy: { strict: true, verdict_carry: 'patch-id', reason: 'ruleset main factory merge' } } }), /Required checks strictness \| not strict/);
   assert.match(canApply('gates-warn', ['docs-config']), /needs baselines first/);
   assert.equal(canApply('baselines', ['docs-config']), null);
@@ -152,6 +157,14 @@ test('eng renovate end to end on a brownfield repo: audit, apply, baseline, scan
   assert.equal(r.status, 0, out(r)); assert.match(r.stdout, /WARN \(warn mode/);
   fs.rmSync(path.join(dir, 'config'), { recursive: true });
 
+  put('test/x.test.ts', "fs.writeFileSync('/tmp/x', '')\n"); git('add -A'); git('commit -qm warn-branch');
+  r = eng('lint');
+  assert.equal(r.status, 0, out(r)); assert.match(r.stdout, /eng lint: WARN/);
+  r = eng('lint', '--config-from', 'HEAD~1');
+  assert.match(out(r), /rules from HEAD~1/);
+  assert.equal(r.status, 1, 'warn mode on the branch does not soften lint against the base config'); assert.match(r.stderr, /test-bare-tmpdir/);
+  fs.rmSync(path.join(dir, 'test'), { recursive: true }); git('add -A'); git('commit -qm unwarn');
+
   fs.appendFileSync(path.join(dir, 'SHIPPING.md'), 'edited by hand\n');
   assert.equal(eng('renovate', 'render', '--check').status, 1);
   assert.equal(eng('renovate', 'render').status, 0);
@@ -168,6 +181,8 @@ test('eng renovate ci-preflight and prove: needs-decision exits 3; a timeout rec
   assert.equal(r.status, 3, out(r)); assert.match(r.stdout, /blocked\(timeout\) heavy/); assert.match(r.stdout, /NOT PROVED \(blocked\)/);
   const ledger = JSON.parse(fs.readFileSync(path.join(dir, `renovation/proof/${git('rev-parse HEAD')}.json`), 'utf8'));
   assert.equal(ledger.gates.quick.status, 'pass'); assert.equal(ledger.gates.heavy.status, 'blocked'); assert.equal(ledger.result, 'blocked');
+  r = eng('renovate', 'prove', '--gate', 'quick');
+  assert.equal(r.status, 3, out(r)); assert.match(r.stdout, /NOT PROVED \(blocked\)/, '--gate on a passed gate never turns a blocked ledger into PROVED');
   r = eng('renovate', 'prove', '--gate', 'quick', '--gate', 'heavy', '--timeout', '30');
   assert.equal(r.status, 0, out(r)); assert.match(r.stdout, /resumed from renovation\/proof/); assert.match(r.stdout, /PROVED/);
   fs.writeFileSync(p, cfg);
