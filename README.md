@@ -21,6 +21,8 @@ One file, `eng.config.yml`, drives everything. Agent-agnostic: plain SKILL.md fi
 | `eng gate` | every `gates.required`; skipped/blocked = failed |
 | `hooks.pre_commit`, `agents.post_edit_command` | optional config. `.githooks/pre-commit` runs each `hooks.pre_commit` command in its own `sh -c` after drift-check, stack-check and lint, and stops at the first failure. `agents.post_edit_command` becomes a Claude Code `PostToolUse` hook in `.claude/settings.json` for `Edit\|MultiEdit\|Write`; exit code 2 returns its stderr to the agent. Unset keys render the same files as before |
 | `stack.defaults.agent_activity_ui` | STACK.md default: agent or AI activity shown to users (reasoning, tool calls, subagents, queues) uses shadcn Trace (`pnpm dlx shadcn@latest add trace`), plus AI Elements / Code Block where relevant, not custom UI. Docs: https://ui.shadcn.com/docs/components/trace |
+| `eng renovate audit\|plan\|apply <step>\|render\|baseline\|scan\|wire\|ci-preflight\|refresh\|receipt\|prove` | renovation pack for existing repos: audit against the standard, seven fixed adoption steps as normal PRs, baselines, CI preflight, receipt drafts, proof ledger. Never merges or edits rulesets. See `renovation/README.md` |
+| `eng launch [--ref r]` / `eng launch down <dir>` | private 0700 worktree + tmp under `$TMPDIR`; never chmods an existing checkout |
 | `npm test` | this package's own tests (`node --test`) |
 
 Vendored upstream skills (verbatim, path-rewritten `.cursor/skills/` → `.agents/skills/`): see `vendor/PINS.txt`. Licenses: MIT (vendor/*/LICENSE).
