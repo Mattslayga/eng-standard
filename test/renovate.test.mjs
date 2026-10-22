@@ -62,13 +62,18 @@ test('proof ledger: timeout and admission are blocked, never pass; resume skips 
   assert.deepEqual(gateOutcome({ status: null, timedOut: true }), { status: 'blocked', reason: 'timeout' });
   assert.deepEqual(gateOutcome({ status: 1, out: 'heavy admission: queue full' }), { status: 'blocked', reason: 'admission' });
   assert.deepEqual(gateOutcome({ status: 2 }), { status: 'fail' });
-  const l = { gates: { install: { status: 'pass' }, test: { status: 'blocked' } } };
-  assert.equal(ledgerResult(l, ['install', 'test']), 'blocked');
-  assert.equal(ledgerResult(l, ['install', 'test', 'lint']), 'blocked');
-  assert.equal(ledgerResult({ gates: { a: { status: 'fail' }, b: { status: 'blocked' } } }, ['a', 'b']), 'failed');
-  assert.equal(ledgerResult({ gates: { a: { status: 'pass' } } }, ['a']), 'proved');
-  assert.deepEqual(gatesToRun(l, ['install', 'test']), ['test']);
-  assert.deepEqual(gatesToRun(l, ['install', 'test'], true), ['install', 'test']);
+  const G = (...n) => n.map(name => ({ name, command: `run ${name}` }));
+  const l = { gates: { install: { status: 'pass', command: 'run install' }, test: { status: 'blocked', command: 'run test' } } };
+  assert.equal(ledgerResult(l, G('install', 'test')), 'blocked');
+  assert.equal(ledgerResult(l, G('install', 'test', 'lint')), 'blocked');
+  assert.equal(ledgerResult({ gates: { a: { status: 'fail' }, b: { status: 'blocked' } } }, G('a', 'b')), 'failed');
+  assert.equal(ledgerResult({ gates: { a: { status: 'pass', command: 'run a' } } }, G('a')), 'proved');
+  assert.deepEqual(gatesToRun(l, G('install', 'test')), ['test']);
+  assert.deepEqual(gatesToRun(l, G('install', 'test'), true), ['install', 'test']);
+  const edited = [{ name: 'install', command: 'run install --frozen' }];
+  assert.equal(ledgerResult(l, edited), 'blocked', 'a pass recorded for another command does not count');
+  assert.deepEqual(gatesToRun(l, edited), ['install'], 'an edited command re-runs instead of resuming');
+  assert.match(validateRenovation({ version: '0.9.0', completed_steps: [], proof: { gates: [{ name: 'a', command: 'x', timeout_s: 1 }, { name: 'a', command: 'y', timeout_s: 1 }] } }).join(), /duplicate gate name a/);
 });
 
 test('merge policy: strict + behind refreshes first; patch-id carry keeps the verdict but a receipt is redrafted', () => {
@@ -175,8 +180,13 @@ test('eng renovate ci-preflight and prove: needs-decision exits 3; a timeout rec
   const p = path.join(dir, 'eng.config.yml');
   const cfg = fs.readFileSync(p, 'utf8');
   fs.writeFileSync(p, cfg.replace(/^renovation:\n/m, 'renovation:\n  ci: { provider: buildkite, queue: infotech-linux-small, image: infotech-ci-v6, toolchain: { bun: 1.2.19 } }\n  proof:\n    gates:\n      - { name: quick, command: "true", timeout_s: 30 }\n      - { name: heavy, command: "sleep 5", timeout_s: 1 }\n'));
+  git('add -A'); git('commit -qm proof-gates');
   let r = eng('renovate', 'ci-preflight');
   assert.equal(r.status, 3, out(r)); assert.match(r.stdout, /needs-decision: ci-image-operator \(image infotech-ci-v6, queue infotech-linux-small\)/);
+  put('dirty.txt', 'x\n');
+  r = eng('renovate', 'prove');
+  assert.equal(r.status, 1, out(r)); assert.match(r.stderr, /prove: working tree not clean/);
+  fs.rmSync(path.join(dir, 'dirty.txt'));
   r = eng('renovate', 'prove');
   assert.equal(r.status, 3, out(r)); assert.match(r.stdout, /blocked\(timeout\) heavy/); assert.match(r.stdout, /NOT PROVED \(blocked\)/);
   const ledger = JSON.parse(fs.readFileSync(path.join(dir, `renovation/proof/${git('rev-parse HEAD')}.json`), 'utf8'));
@@ -185,11 +195,14 @@ test('eng renovate ci-preflight and prove: needs-decision exits 3; a timeout rec
   assert.equal(r.status, 3, out(r)); assert.match(r.stdout, /NOT PROVED \(blocked\)/, '--gate on a passed gate never turns a blocked ledger into PROVED');
   r = eng('renovate', 'prove', '--gate', 'quick', '--gate', 'heavy', '--timeout', '30');
   assert.equal(r.status, 0, out(r)); assert.match(r.stdout, /resumed from renovation\/proof/); assert.match(r.stdout, /PROVED/);
+  fs.writeFileSync(p, cfg.replace(/^renovation:\n/m, 'renovation:\n  proof:\n    gates:\n      - { name: quick, command: "true", timeout_s: 30 }\n      - { name: quick, command: "false", timeout_s: 30 }\n'));
+  assert.match(out(eng('renovate', 'prove')), /duplicate gate name quick/);
   fs.writeFileSync(p, cfg);
+  git('add -A'); git('commit -qm proof-gates-reset');
 });
 
 test('eng verdict records provider; eng renovate receipt drafts a core-edge receipt and never posts', () => {
-  git('add -A'); git('commit -qm "step3" -m "Agent: builder-1\nAgent-Family: claude"');
+  git('add -A'); git('commit -q --allow-empty -m "step3" -m "Agent: builder-1\nAgent-Family: claude"');
   let r = eng('renovate', 'apply', 'gates-enforce'); assert.equal(r.status, 0, out(r));
   r = eng('renovate', 'apply', 'verifier', '--adapter', 'core-edge.ship-receipt/v1'); assert.equal(r.status, 0, out(r));
   assert.equal(eng('renovate', 'render', '--check').status, 0, 'apply re-renders what its config edit changed');

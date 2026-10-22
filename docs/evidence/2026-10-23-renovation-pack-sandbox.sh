@@ -81,13 +81,16 @@ check "receipt binds head, base tip, head tree and providers" "node -e \"const b
 expect 0 "refresh: verdict current, receipt is a draft for this head" eng renovate refresh
 
 step "9. step 6 e2e / native proof ledger (spec §6)"
-ln -s "$SANDBOX/a-zod/node_modules" a-zod/node_modules
+ln -s "$SANDBOX/a-zod/node_modules" a-zod/node_modules && echo a-zod/node_modules >> .gitignore   # .gitignore's node_modules/ does not match a symlink
 cfgset "['project','commands','test']" "'cd a-zod && npx --no-install vitest run'"
 expect 0 "apply e2e" eng renovate apply e2e
 cfgset "['renovation','proof','gates']" "[{name:'test',command:'cd a-zod && npx --no-install vitest run',timeout_s:300},{name:'heavy',command:'sleep 3',timeout_s:1}]"
 commit "renovate step 6: e2e proof gates"
 expect 3 "prove: heavy gate times out, recorded blocked, NOT PROVED" eng renovate prove
 expect 0 "prove resumes: test kept, heavy re-run with a longer timeout" eng renovate prove --timeout 30
+cfgset "['renovation','proof','gates',1,'command']" "'sleep 1'"
+expect 1 "prove refuses an uncommitted gate edit (the ledger binds a commit)" eng renovate prove
+git checkout -q eng.config.yml
 check "ledger is proved for this sha" "node -e \"process.exit(require('./renovation/proof/$(git rev-parse HEAD).json').result==='proved'?0:1)\""
 
 step "10. step 7 launch contract"
@@ -106,7 +109,7 @@ expect 0 "audit" eng renovate audit
 expect 0 "plan" eng renovate plan
 
 step "13. cleanup"
-rm a-zod/node_modules; commit "renovation proof: audit and ledger"
+rm a-zod/node_modules; sed -i '/^a-zod\/node_modules$/d' .gitignore; commit "renovation proof: audit and ledger"
 BR=$(git branch --show-current)
 cd "$SANDBOX" || exit 2
 expect 0 "launch down (no --force)" eng launch down "$DIR"
