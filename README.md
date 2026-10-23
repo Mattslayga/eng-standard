@@ -22,7 +22,10 @@ One file, `eng.config.yml`, drives everything. Agent-agnostic: plain SKILL.md fi
 | `hooks.pre_commit`, `agents.post_edit_command` | optional config. `.githooks/pre-commit` runs each `hooks.pre_commit` command in its own `sh -c` after drift-check, stack-check and lint, and stops at the first failure. `agents.post_edit_command` becomes a Claude Code `PostToolUse` hook in `.claude/settings.json` for `Edit\|MultiEdit\|Write`; exit code 2 returns its stderr to the agent. Unset keys render the same files as before |
 | `stack.defaults.agent_activity_ui` | STACK.md default: agent or AI activity shown to users (reasoning, tool calls, subagents, queues) uses shadcn Trace (`pnpm dlx shadcn@latest add trace`), plus AI Elements / Code Block where relevant, not custom UI. Docs: https://ui.shadcn.com/docs/components/trace |
 | `eng renovate audit\|plan\|apply <step>\|render\|baseline\|scan\|wire\|ci-preflight\|refresh\|receipt\|prove` | renovation pack for existing repos: audit against the standard, seven fixed adoption steps as normal PRs, baselines, CI preflight, receipt drafts, proof ledger. Never merges or edits rulesets. See `renovation/README.md` |
-| `eng launch [--ref r]` / `eng launch down <dir>` | private 0700 worktree + tmp under `$TMPDIR`; never chmods an existing checkout |
+| `eng launch [--ref r] -- <cmd>` / `eng launch --keep` / `eng launch down <dir>` | private 0700 worktree + tmp in one round dir under `hygiene.scratch_root` (never /tmp); `-- <cmd>` removes the round on exit, pass or fail; never chmods an existing checkout |
+| `eng verdict round [--ref r] -- <cmd>` | a verifier round: the same scratch round at HEAD, removed on exit |
+| `eng doctor` | gate: fails a config that skips the scratch root, a toolchain's shared cache (Cargo, Vite, Bun, Deno), the Vite `cacheDir`, the container label or per-PR evidence; plus the built-in disk lint rules |
+| `eng clean --containers` / `--evidence` | dry run by default: containers labelled for this repo (with their volumes); evidence dirs of merged or closed PRs |
 | `npm test` | this package's own tests (`node --test`) |
 
 Vendored upstream skills (verbatim, path-rewritten `.cursor/skills/` → `.agents/skills/`): see `vendor/PINS.txt`. Licenses: MIT (vendor/*/LICENSE).

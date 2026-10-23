@@ -6,6 +6,9 @@ import path from 'node:path';
 import { spawn, spawnSync, execSync } from 'node:child_process';
 import YAML from 'yaml';
 import { staleTmpDirs, TMP_RULE } from '../lib/hygiene.mjs';
+// eng's scratch root and shared caches live under XDG_CACHE_HOME: keep them inside this run, never in the real ~/.cache.
+process.env.XDG_CACHE_HOME = fs.mkdtempSync(path.join(process.env.ENG_TMP ?? os.tmpdir(), 'eng-xdg-'));
+process.on('exit', () => fs.rmSync(process.env.XDG_CACHE_HOME, { recursive: true, force: true }));
 
 const ENG = path.resolve(new URL('../bin/eng.mjs', import.meta.url).pathname);
 const TPL = path.resolve(new URL('../templates/eng.config.yml', import.meta.url).pathname);

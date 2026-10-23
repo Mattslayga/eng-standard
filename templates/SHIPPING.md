@@ -70,7 +70,7 @@ After merging `<BASE>` in, the head is a new SHA: run `eng verify maintain` to r
 
 The shared devbox filled at ~8 GB/hour: per-run test dirs in /tmp were never deleted (Motus vitest/e2e 2-4 GB per run, 44 GB in total; Core Edge fallow-coverage/cli-home fixtures ~8 GB; a stray 34 GB /tmp/node_modules) and 118 T3 worktrees (~70 GB) were never removed when their threads finished.
 
-- **Temp dirs.** Tests, e2e and fallow write only under the per-run dir `$ENG_TMP` (`$TMPDIR/eng-<repo>-<runid>`). `eng gate` and `eng e2e` create it, point `ENG_TMP` and `TMPDIR` at it for every child, and remove it on exit, on failure and on SIGINT/SIGTERM/SIGHUP. Vitest picks it up through `globalSetup: ['./.eng/test-tmp.mjs']`. Test code never writes to bare `os.tmpdir()` or `/tmp`; `eng lint` rule `test-bare-tmpdir` flags it. Never install or copy `node_modules` into /tmp.
+- **Temp dirs.** Tests, e2e and fallow write only under the per-run dir `$ENG_TMP` (`<hygiene.scratch_root>/eng-<repo>-<runid>`; the scratch root is repo-owned, `~/.cache/eng/<repo>/scratch` by default, never bare `/tmp`). `eng gate` and `eng e2e` create it, point `ENG_TMP` and `TMPDIR` at it for every child, and remove it on exit, on failure and on SIGINT/SIGTERM/SIGHUP. Vitest picks it up through `globalSetup: ['./.eng/test-tmp.mjs']`. Test code never writes to bare `os.tmpdir()` or `/tmp`; `eng lint` rule `test-bare-tmpdir` flags it. Never install or copy `node_modules` into /tmp.
 - **Stale temp dirs.** A run killed with SIGKILL cannot clean up. `eng clean` lists this repo's `eng-<repo>-*` dirs older than N hours (`--older-than`, default 6) whose process is gone; `eng clean --apply` deletes them.
 - **Worktrees.** When a thread settles or its PR merges, the author confirms its commits are pushed (`git status -sb` shows nothing ahead; `git log @{u}..` is empty), then removes its worktree from the main checkout: `eng clean --worktrees --apply`. It removes only worktrees whose branch is merged into `origin/<BASE>` or deleted upstream, AND whose commits are all on the remote, AND that have no uncommitted changes. Everything else is reported, never deleted.
 - **Never delete unpushed or dirty worktrees.** Not with `git worktree remove --force`, not with `rm -rf`. Report them to the repo lead with the path, branch and what is unpushed or uncommitted.
@@ -84,6 +84,14 @@ The shared devbox filled at ~8 GB/hour: per-run test dirs in /tmp were never del
 - **One build cache per toolchain.** Share it across lanes and worktrees, never one per lane or worktree. Rust: one `CARGO_TARGET_DIR` or `sccache`, and `CARGO_INCREMENTAL=0` for agents.
 - **Media off the box.** Walkthrough videos and other media go to Drive (or similar), with the link on the PR.
 - **Temp dirs delete themselves** on exit, failure or signal, like `$ENG_TMP` above.
+
+**Scratch, caches, containers and evidence** (v0.9.1; Warden's audit, Oct 2026: a motus proof script's mkdtemp in /tmp, Core Edge Rust targets in /tmp, equitus Deno caches per run, Docker anonymous volumes).
+
+- **One round dir per round.** `eng launch -- <cmd>` and `eng verdict round -- <cmd>` run the command in a private 0700 worktree inside one round dir under `hygiene.scratch_root`, and a trap removes the round on exit, failure or signal. `eng launch --keep` is the only persistent form (`eng launch down <dir>`). Scripts write scratch only under `$ENG_SCRATCH` / `$ENG_TMP`, never bare `/tmp` (`eng lint` rule `script-bare-tmpdir`). Credentials stay in env or on stdin, never on disk (`credential-to-disk`).
+- **One shared build cache per toolchain per repo** (`hygiene.caches`). eng exports `CARGO_TARGET_DIR` (+ `CARGO_INCREMENTAL=0`), `BUN_INSTALL_CACHE_DIR`, `ENG_VITE_CACHE_DIR` (vite.config sets `cacheDir` from it) and a stable `DENO_DIR` to every child. No per-run targets or caches in tmp (`cargo-target-tmp`, `deno-dir-unstable`).
+- **Containers** run with `--rm`, or with `--label "$ENG_CONTAINER_LABEL"` and are removed with their volumes by `eng clean --containers --apply` (`container-no-rm`). Never `docker volume prune -a` (`volume-prune-all`): it deletes other repos' data.
+- **Evidence per PR.** e2e evidence lands in `<e2e.evidence_dir>/pr-<n>/<sha>/`; `eng clean --evidence --apply` deletes merged or closed PRs' dirs and reports the rest.
+- **`eng doctor`** (gate `doctor`) fails a config that skips any of these: scratch root, the cache for each toolchain the repo uses, the Vite `cacheDir`, the container label, `evidence: per_pr`, and the disk rules.
 
 ## 6. CI hygiene
 

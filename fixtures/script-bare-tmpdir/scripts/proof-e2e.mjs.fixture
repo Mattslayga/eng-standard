@@ -1,0 +1,2 @@
+// motus scripts/proof-e2e.mjs (Warden audit, Oct 2026)
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proof-e2e-'));

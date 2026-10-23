@@ -8,6 +8,9 @@ import {
   preflight, compareBaseline, makeBaseline, baselineDiff, secretFilenameFindings, gateOutcome, ledgerResult, gatesToRun, refreshPlan,
   ADAPTERS, crossProviderFlag, covers, withLocalRules, LOCAL_BEGIN, divergencesMd, canApply, planSteps, validateRenovation,
 } from '../lib/renovate.mjs';
+// eng's scratch root and shared caches live under XDG_CACHE_HOME: keep them inside this run, never in the real ~/.cache.
+process.env.XDG_CACHE_HOME = fs.mkdtempSync(path.join(process.env.ENG_TMP ?? os.tmpdir(), 'eng-xdg-'));
+process.on('exit', () => fs.rmSync(process.env.XDG_CACHE_HOME, { recursive: true, force: true }));
 
 const ENG = path.resolve(new URL('../bin/eng.mjs', import.meta.url).pathname);
 let dir, tmp;
@@ -240,11 +243,12 @@ test('eng verdict records provider; eng renovate receipt drafts a core-edge rece
   assert.equal(r.status, 0, out(r)); assert.match(r.stdout, /eng renovate refresh: receipt/);
 });
 
-test('eng launch: private 0700 worktree and tmp under $TMPDIR; the shared 775 checkout is never chmodded', () => {
-  let r = eng('launch', '--ref', 'HEAD');
+test('eng launch --keep: private 0700 worktree and tmp under the scratch root; the shared 775 checkout is never chmodded', () => {
+  assert.match(out(eng('launch', '--ref', 'HEAD')), /usage: eng launch \[--ref <ref>\] -- <command>/, 'bare launch must choose a round or --keep');
+  let r = eng('launch', '--keep', '--ref', 'HEAD');
   assert.equal(r.status, 0, out(r));
   const wt = r.stdout.match(/worktree (\S+) \(mode 700\)/)[1], d = path.dirname(wt);
-  assert.ok(d.startsWith(tmp + path.sep), `launch dir ${d} is under TMPDIR ${tmp}`);
+  assert.ok(d.startsWith(path.join(process.env.XDG_CACHE_HOME, 'eng') + path.sep), `launch dir ${d} is under the repo scratch root`);
   for (const x of [d, wt, path.join(d, 'tmp')]) assert.equal((fs.statSync(x).mode & 0o777).toString(8), '700');
   assert.equal((fs.statSync(dir).mode & 0o777).toString(8), '775');
   assert.equal(fs.readFileSync(path.join(wt, 'package.json'), 'utf8').includes('brownfield'), true);
