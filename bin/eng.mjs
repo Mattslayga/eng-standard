@@ -7,11 +7,13 @@ import os from 'node:os';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { renderAll, expandSkills, routerText, ROUTE_RULE, rulesetAdvice, SPAWN_RULE } from '../lib/render.mjs';
+import { renderAll, expandSkills, routerText, ROUTE_RULE, rulesetAdvice, SPAWN_RULE, shippingMd } from '../lib/render.mjs';
 import { flakeRuns, flakeVerdict, parseResults, validateFlake } from '../lib/flake.mjs';
 import { glob2re, decide, validatePolicy } from '../lib/e2e-policy.mjs';
 import { engTmp, staleTmpDirs, parseWorktrees, classifyWorktree, TMP_RULE, tmpBase } from '../lib/hygiene.mjs';
 import { audit, corePayloads, minVersion, cmp, sydneyMonth } from '../lib/stack-audit.mjs';
+import { validateRenovation, compareBaseline, lintFindings, baselinePath, PROVIDERS } from '../lib/renovate.mjs';
+import { renovate, launch } from '../lib/renovate-cli.mjs';
 
 const PKG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = process.cwd();
@@ -32,8 +34,10 @@ function loadConfig() {
 }
 
 // Cross-field rules that stop loosening (design §1.2, the parts v0 implements).
-function validate(c) {
+function validate(c) { const errs = configErrors(c); if (errs.length) die('config invalid:\n  ' + errs.join('\n  ')); }
+function configErrors(c) {
   const errs = [];
+  if (!c || typeof c !== 'object') return ['eng.config.yml is not a mapping'];
   if (c.version !== 1) errs.push('version must be 1');
   if (!c.merge?.owner || !c.merge?.command) errs.push('merge.owner and merge.command are required (no global merge rule)');
   if (c.merge?.method === 'rebase') errs.push('merge.method may not be rebase');
@@ -46,7 +50,8 @@ function validate(c) {
   if (post !== undefined && !(typeof post === 'string' && post.trim())) errs.push('agents.post_edit_command must be a non-empty command');
   errs.push(...validatePolicy(c.e2e));
   errs.push(...validateFlake(c.e2e));
-  if (errs.length) die('config invalid:\n  ' + errs.join('\n  '));
+  errs.push(...validateRenovation(c.renovation));
+  return errs;
 }
 
 const cfgHash = () => sha256(fs.readFileSync(path.join(ROOT, 'eng.config.yml'), 'utf8'));
@@ -283,23 +288,36 @@ function lintFiles(rule, files, base) {
   for (const f of files) {
     const name = f.replace(/\.fixture$/, '');
     if (!pre.some(p => p.test(name)) || ex.some(p => p.test(name))) continue;
-    fs.readFileSync(path.join(base, f), 'utf8').split('\n').forEach((line, i) => { if (re.test(line)) hits.push(`${f}:${i + 1}: [${rule.id}] ${rule.message}`); });
+    fs.readFileSync(path.join(base, f), 'utf8').split('\n').forEach((line, i) => { if (re.test(line)) hits.push({ file: f, line: i + 1, rule: rule.id, text: line, message: rule.message }); });
   }
   return hits;
+}
+const hitText = h => `${h.file}:${h.line}: [${h.rule}] ${h.message}`;
+function lintHits(cfg) {
+  const files = sh('git ls-files --cached --others --exclude-standard').split('\n').filter(f => f && !f.startsWith('.eng/rule-proofs/') && fs.existsSync(path.join(ROOT, f)));
+  // Files eng sync writes (drift-tracked: rendered + vendored) are owned by the standard, not this repo. The drift
+  // check forbids editing them, so repo lint rules must not flag them either (fix such hits upstream in eng-standard).
+  const managed = new Set([...Object.keys(render(loadConfig())), ...Object.keys(JSON.parse(readOr('.eng/lock.json', '{}')).files || {})]);
+  const own = files.filter(f => !managed.has(f));
+  return builtinRules(cfg).flatMap(r => lintFiles(r, own, ROOT));
 }
 function lint() {
   // --config-from <ref>: take the rules from that ref's eng.config.yml (CI uses main's copy, so a PR cannot delete its own rule).
   const i = process.argv.indexOf('--config-from'), ref = i > 0 ? process.argv[i + 1] : null;
   const cfg = ref ? YAML.parse(sh(`git show ${ref}:eng.config.yml`)) : loadConfig();
   if (ref) console.log(`  rules from ${ref}:eng.config.yml`);
-  const files = sh('git ls-files --cached --others --exclude-standard').split('\n').filter(f => f && !f.startsWith('.eng/rule-proofs/') && fs.existsSync(path.join(ROOT, f)));
-  // Files eng sync writes (drift-tracked: rendered + vendored) are owned by the standard, not this repo. The drift
-  // check forbids editing them, so repo lint rules must not flag them either (fix such hits upstream in eng-standard).
-  const managed = new Set([...Object.keys(render(loadConfig())), ...Object.keys(JSON.parse(readOr('.eng/lock.json', '{}')).files || {})]);
-  const own = files.filter(f => !managed.has(f));
-  const hits = builtinRules(cfg).flatMap(r => lintFiles(r, own, ROOT));
-  if (hits.length) die(`lint:\n  ${hits.join('\n  ')}`);
-  console.log(`eng lint: PASS (${builtinRules(cfg).length} rules)`);
+  let hits = lintHits(cfg);
+  // Renovation (brownfield): findings in renovation/baselines/lint.json pass; only new ones fail. warn mode reports only.
+  const bl = readOr(baselinePath('lint'));
+  if (bl) {
+    const c = compareBaseline(JSON.parse(bl), lintFindings(hits)), fresh = new Set(c.fresh.map(f => f.fingerprint));
+    console.log(`  baseline ${baselinePath('lint')}: ${c.known.length} baselined, ${c.gone.length} fixed since the baseline`);
+    hits = hits.filter(h => fresh.has(lintFindings([h])[0].fingerprint));
+  }
+  if (hits.length && cfg.renovation?.gates?.mode === 'warn')  // mode from the config the rules came from: a branch cannot switch the base to warn
+    return console.log(`  ${hits.map(hitText).join('\n  ')}\neng lint: WARN (renovation.gates.mode warn; ${hits.length} new finding(s) would fail in enforce mode)`);
+  if (hits.length) die(`lint:\n  ${hits.map(hitText).join('\n  ')}`);
+  console.log(`eng lint: PASS (${builtinRules(cfg).length} rules${bl ? ', new findings only' : ''})`);
 }
 function rulesProve() {
   const cfg = loadConfig(); const bad = [];
@@ -317,7 +335,8 @@ function rulesProve() {
 
 // ---------- verification: create + maintain ----------
 const head = () => sh('git rev-parse HEAD');
-const baseRef = cfg => { try { sh(`git rev-parse --verify origin/${cfg.project.default_branch}`); return `origin/${cfg.project.default_branch}`; } catch { return cfg.project.default_branch; } };
+// The PR's base: --base <ref> or ENG_BASE for a stacked PR, else project.default_branch (origin/ when fetched).
+const baseRef = cfg => { const b = (process.argv.includes('--base') && process.argv[process.argv.indexOf('--base') + 1]) || process.env.ENG_BASE || cfg.project.default_branch; if (b.startsWith('origin/')) return b; try { sh(`git rev-parse --verify origin/${b}`); return `origin/${b}`; } catch { return b; } };
 const patchId = (cfg, rev = 'HEAD') => { const mb = sh(`git merge-base ${baseRef(cfg)} ${rev}`); return sh(`git diff --binary ${mb} ${rev} | git patch-id --stable`).split(' ')[0] || 'empty'; };
 // On the default branch HEAD equals base, so the branch patch-id is 'empty'. The change being validated there is the
 // last merged one: a squash merge is one commit whose diff HEAD^..HEAD has the same patch-id as the PR branch had
@@ -330,7 +349,7 @@ function allNotes() { let l = ''; try { l = sh(`git notes --ref ${NOTES} list`);
 function record(rec) { sh(`git notes --ref ${NOTES} append -m '${JSON.stringify(rec).replaceAll("'", "'\\''")}' ${rec.sha}`); }
 function runCheck(cfg, id, cwd) { const r = run(`bash ${path.join(ROOT, cfg.verification.checks_dir, id + '.sh')}`, cwd); return { ok: r.status === 0, out: (r.stdout + r.stderr).trim().split('\n').slice(-3).join(' | ') }; }
 // .eng/mistakes.jsonl is an append-only log that eng gate itself writes; it never counts as uncommitted code.
-function clean() { if (sh('git status --porcelain -- . ":(exclude).eng/mistakes.jsonl"')) die('working tree not clean; commit first so the verdict binds to a real SHA'); }
+function clean() { if (sh('git status --porcelain -- . ":(exclude).eng/mistakes.jsonl" ":(exclude)renovation/proof" ":(exclude)renovation/receipts"')) die('working tree not clean; commit first so the verdict binds to a real SHA'); }
 
 function verifyCreate(id) {
   const cfg = loadConfig(); clean();
@@ -338,7 +357,7 @@ function verifyCreate(id) {
   if (!fs.existsSync(chk)) die(`no check ${chk}`);
   const H = head(), B = sh(`git merge-base ${baseRef(cfg)} HEAD`);
   if (B === H) die('HEAD equals base; nothing to prove');
-  const wt = fs.mkdtempSync('/tmp/eng-base-');
+  const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-base-'));
   sh(`git worktree add --detach ${wt} ${B}`);
   if (fs.existsSync(path.join(ROOT, 'node_modules'))) fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(wt, 'node_modules'));
   const before = runCheck(cfg, id, wt);
@@ -573,7 +592,7 @@ function lawsManifest(l) {
 function compileKernels(l) {
   const out = {};
   for (const k of l.kernels || []) {
-    const tmp = fs.mkdtempSync('/tmp/eng-bend-'); const o = path.join(tmp, 'k.mjs');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-bend-')); const o = path.join(tmp, 'k.mjs');
     const r = bendRun([path.join(ROOT, k.source), '-o', o], ROOT);
     if (r.status !== 0) die(`laws: bend ${k.source} -o failed: ${r.stdout}${r.stderr}`);
     out[k.out] = `// GENERATED by \`eng laws --write\` from ${k.source} with bend ${l.bend_version}. Do not edit; see ${l.dir}/${l.laws_file}.\n` + fs.readFileSync(o, 'utf8');
@@ -598,7 +617,7 @@ function lawsApprove(by, note) {
 function lawsMutations(l) {
   const bad = [];
   for (const m of l.mutations || []) {
-    const tmp = fs.mkdtempSync('/tmp/eng-mut-');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-mut-'));
     fs.cpSync(path.join(ROOT, l.dir), tmp, { recursive: true });
     const f = path.join(tmp, m.file), src = fs.readFileSync(f, 'utf8');
     if (!src.includes(m.from)) { bad.push(`${m.name}: pattern not found (mutation is stale)`); continue; }
@@ -805,12 +824,16 @@ function verdictsFor(pid) {
   let l = ''; try { l = sh(`git notes --ref ${VNOTES} list`); } catch {}
   return l.split('\n').filter(Boolean).flatMap(x => { try { return sh(`git notes --ref ${VNOTES} show ${x.split(' ')[1]}`).split('\n').filter(Boolean).map(JSON.parse); } catch { return []; } }).filter(v => v.patch_id === pid);
 }
+function independentVerdicts(cfg, pid) { const { ids, fams } = codeAuthors(cfg); return verdictsFor(pid).filter(v => !ids.has(v.by) && !fams.has(v.family)).sort(byTime); }
 function verdictRecord(result) {
   const cfg = loadConfig(); clean();
-  if (!['PASS', 'PASS+NOTES', 'FAIL'].includes(result)) die('usage: eng verdict PASS|PASS+NOTES|FAIL --by <agent-id> --family <model-family> [--evidence <path>] [--pr <n>]');
-  const by = arg('--by'), family = arg('--family');
+  if (!['PASS', 'PASS+NOTES', 'FAIL'].includes(result)) die('usage: eng verdict PASS|PASS+NOTES|FAIL --by <agent-id> --family <model-family> [--provider openai|anthropic|google|xai] [--model <m>] [--session <id>] [--route <r>] [--evidence <path>] [--pr <n>] [--base <ref>]');
+  const by = arg('--by'), family = arg('--family'), provider = arg('--provider');
   if (!by || !family) die('verdict: --by <agent-id> and --family <model-family> are required');
-  const H = head(), rec = { sha: H, base: sh(`git merge-base ${baseRef(cfg)} HEAD`), patch_id: patchId(cfg), result, by, family, evidence: arg('--evidence'), at: new Date().toISOString() };
+  if (provider && !PROVIDERS.includes(provider)) die(`verdict: --provider must be one of ${PROVIDERS.join(', ')} (the model provider, not the harness)`);
+  // Bound to head, merge-base, patch-id, base tip and head tree (the diff fingerprint receipts use). Optional reviewer fields feed receipt adapters.
+  const H = head(), rec = { sha: H, base: sh(`git merge-base ${baseRef(cfg)} HEAD`), base_tip: sh(`git rev-parse ${baseRef(cfg)}`), tree: sh('git rev-parse HEAD^{tree}'), patch_id: patchId(cfg), result, by, family,
+    ...Object.fromEntries([['provider', provider], ['model', arg('--model')], ['session', arg('--session')], ['route', arg('--route')]].filter(([, v]) => v)), evidence: arg('--evidence'), at: new Date().toISOString() };
   sh(`git notes --ref ${VNOTES} append -m '${JSON.stringify(rec).replaceAll("'", "'\\''")}' ${H}`);
   if (result === 'FAIL') logMistake('verdict:FAIL', `FAIL by ${by} (${family})${rec.evidence ? ', evidence ' + rec.evidence : ''}`, 'verdict');
   console.log(`eng verdict: recorded ${result} by ${by} (${family}) on ${H.slice(0, 8)}, patch-id ${rec.patch_id.slice(0, 12)}`);
@@ -945,5 +968,7 @@ const [cmd, ...a] = process.argv.slice(2);
 const cmds = { verdict: () => a[0] === 'check' ? verdictCheck() : a[0] === 'status' ? verdictStatus(arg('--pr')) : (arg('--pr') && prHead(arg('--pr')), verdictRecord(a[0]), arg('--pr') && verdictStatus(arg('--pr'))), init, sync, 'drift-check': driftCheck, 'stack-check': stackCheck, 'stack-audit': stackAudit, lint, gate, e2e, conform, 'find-laws': findLaws, laws: () => a[0] === '--write' ? lawsWrite() : a[0] === 'approve' ? lawsApprove(a[1], a.slice(2).join(' ')) : laws(),
   rules: () => a[0] === 'prove' ? rulesProve() : die('usage: eng rules prove'),
   verify: () => a[0] === 'create' ? verifyCreate(a[1]) : a[0] === 'maintain' ? verifyMaintain() : die('usage: eng verify create <id> | maintain'),
-  mistake: () => mistake(a[0], a.slice(1).join(' ')), retro, ship: () => a[0] === 'next' ? shipNext() : die('usage: eng ship next'), 'launch-check': launchCheck, fallow: fallowGate, 'ci-verdict': () => ciVerdict(a), 'e2e-required': e2eRequired, clean: cleanCmd };
-(cmds[cmd] || (() => { console.log('eng init | sync | verdict PASS|PASS+NOTES|FAIL --by <id> --family <f> [--evidence <p>] [--pr <n>] | verdict check | verdict status --pr <n> | drift-check | stack-check | stack-audit [<name>=<path>...] [--ref <ref>] [--standard <file>] [--json | --core [--core-space <s>] [--core-target <type>:<id>]] | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | ship next | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e [--if-required] [--flake-check [--runs N] [--results pass,fail,...]] | e2e-required [--event pr|main|nightly] [--base <ref>] [--files a,b] [--labels a,b] [--json] [--exit-code] | gate | clean [--older-than <h>] [--worktrees [--tmp]] [--no-fetch] [--apply]'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();
+  mistake: () => mistake(a[0], a.slice(1).join(' ')), retro, ship: () => a[0] === 'next' ? shipNext() : die('usage: eng ship next'), 'launch-check': launchCheck, fallow: fallowGate, 'ci-verdict': () => ciVerdict(a), 'e2e-required': e2eRequired, clean: cleanCmd,
+  renovate: () => renovate(engCtx(), a), launch: () => launch(engCtx(), a) };
+function engCtx() { return { ROOT, PKG, sh, die, arg, args: a, flag: k => a.includes(k), configErrors, shippingMd, lintHits, baseRef, head, patchId, codeAuthors, independentVerdicts }; }
+(cmds[cmd] || (() => { console.log('eng init | sync | verdict PASS|PASS+NOTES|FAIL --by <id> --family <f> [--provider <p>] [--model <m>] [--session <s>] [--evidence <p>] [--pr <n>] | verdict check | verdict status --pr <n> | drift-check | stack-check | stack-audit [<name>=<path>...] [--ref <ref>] [--standard <file>] [--json | --core [--core-space <s>] [--core-target <type>:<id>]] | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | ship next | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e [--if-required] [--flake-check [--runs N] [--results pass,fail,...]] | e2e-required [--event pr|main|nightly] [--base <ref>] [--files a,b] [--labels a,b] [--json] [--exit-code] | gate | clean [--older-than <h>] [--worktrees [--tmp]] [--no-fetch] [--apply] | renovate audit|plan|apply <step>|render [--check]|baseline [--kind k] [--reason r]|scan|wire --ci buildkite|github|ci-preflight|refresh|receipt --pr <n>|prove [--gate g] | launch [--ref <ref>] | launch down <dir>'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();

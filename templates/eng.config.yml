@@ -110,6 +110,16 @@ launch:                           # The repo owns its isolated local launch (pst
     run_id: ENG_RUN_ID
     kill: own_pids_only           # never pkill/killall by name
     evidence: outside_repo        # ENG_RUN_DIR/evidence survives down
+  worktree: private               # eng launch: a fresh worktree in a 0700 dir under $TMPDIR; never chmod a shared checkout
+  tmp: $TMPDIR                    # base for that dir (os.tmpdir(); never a hard-coded /tmp)
+  mode: "0700"
+  base: main                      # ref eng launch checks out (origin/<base> when fetched)
+
+# renovation:                     # Existing repos only: written by `eng renovate apply` (renovation/README.md in the package). New repos skip it.
+#   version: 0.9.0
+#   completed_steps: []
+#   policy_owner: "@lead"
+#   merge_policy: { strict: false, verdict_carry: patch-id }
 
 audits:
   maintain_verification:          # Daily audit: pstack maintain-verification-skill, unchanged. eng renders .eng/ci/audit.yml; a human creates the schedule.
