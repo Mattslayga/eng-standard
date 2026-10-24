@@ -1,4 +1,4 @@
-// eng-standard's own merge rule (v0.8.0): risk paths, the self-merge decision, and `eng verdict status`.
+// eng-standard's own merge rule (v0.9.1): risk paths, the self-merge decision, the auto-revert, and `eng verdict --pr`.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -7,7 +7,7 @@ import path from 'node:path';
 import { spawnSync, execSync } from 'node:child_process';
 import YAML from 'yaml';
 import { classifyRisk, versionOnly } from '../lib/risk.mjs';
-import { selfMergeConfig, decide } from '../lib/self-merge.mjs';
+import { selfMergeConfig, decide, verdictBody, parseVerdicts, authorsFrom, isAutoRevert, BOT } from '../lib/self-merge.mjs';
 
 const ROOTCFG = path.resolve(new URL('../eng.config.yml', import.meta.url).pathname);
 const ENG = path.resolve(new URL('../bin/eng.mjs', import.meta.url).pathname);
@@ -47,7 +47,11 @@ test('risk: a rename out of a high-risk path is high', () => {
 
 const SHA = 'a'.repeat(40), T0 = Date.parse('2026-10-19T05:00:00Z');
 const pr = (o = {}) => ({ number: 1, base: 'main', draft: false, sameRepo: true, headSha: SHA, labels: ['risk:low'], ...o });
-const st = (o = {}) => ({ risk: 'low', check: { head_sha: SHA, status: 'completed', conclusion: 'success', completed_at: '2026-10-19T05:00:00Z' }, status: { state: 'success', created_at: '2026-10-19T04:30:00Z' }, ...o });
+const authors = authorsFrom(['feat\n\nAgent: builder-1\nAgent-Family: claude'], ['t@t']);
+const V = (o = {}) => ({ sha: SHA, patch_id: 'p1', result: 'PASS', by: 'gpt-checker', family: 'gpt', provider: 'openai', comment_at: '2026-10-19T04:00:00Z', ...o });
+const GEM = V({ by: 'gemini-checker', family: 'gemini', provider: 'google' });
+const st = (o = {}) => ({ risk: 'low', containsBase: true, check: { head_sha: SHA, status: 'completed', conclusion: 'success', completed_at: '2026-10-19T05:00:00Z' }, status: { state: 'success', created_at: '2026-10-19T04:30:00Z' }, verdicts: [V()], authors, ...o });
+const hi = (o = {}) => st({ risk: 'high', verdicts: [V(), GEM], ...o });
 const at = min => T0 + min * 60_000;
 
 test('self-merge: default window is 2 hours from the later of test and verdict going green', () => {
@@ -70,9 +74,8 @@ test('self-merge: every rule must hold', () => {
     [pr({ sameRepo: false }), st(), /fork/],
     [pr({ draft: true }), st(), /draft/],
     [pr({ labels: ['risk:low', 'hold'] }), st(), /hold label/],
-    [pr({ labels: ['risk:low', 'risk:high'] }), st(), /Matt merges/],
-    [pr({ labels: [] }), st(), /no risk:low label/],
-    [pr(), st({ risk: 'high' }), /recomputed/],
+    [pr({ labels: [] }), st(), /no risk:low or risk:high label/],
+    [pr(), st({ containsBase: false }), /does not contain main's tip/],
     [pr(), st({ check: null }), /no test check/],
     [pr(), st({ check: { ...st().check, head_sha: 'b'.repeat(40) } }), /no test check on head/],
     [pr(), st({ check: { ...st().check, conclusion: 'failure' } }), /test is failure/],
@@ -111,10 +114,144 @@ test('eng verdict --pr: author family is rejected and posts failure; independent
   let r = eng('verdict', 'PASS', '--by', 'builder-1', '--family', 'fam-a', '--pr', '7');
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(fs.readFileSync(calls, 'utf8'), new RegExp(`statuses/${H} -f state=failure -f context=verdict`));
-  r = eng('verdict', 'PASS', '--by', 'checker-1', '--family', 'fam-b', '--pr', '7');
+  r = eng('verdict', 'PASS', '--by', 'checker-1', '--family', 'fam-b', '--provider', 'openai', '--pr', '7');
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /posted success \(context verdict\)/);
+  const log = fs.readFileSync(calls, 'utf8'), [v] = parseVerdicts([{ body: log.slice(log.lastIndexOf('issues/7/comments -f body=') + 26) }]);
+  assert.deepEqual([v.sha, v.result, v.by, v.family, v.provider], [H, 'PASS', 'checker-1', 'fam-b', 'openai'], 'the PR comment carries the exact head and the provider');
   assert.match(fs.readFileSync(calls, 'utf8').trim().split('\n').at(-1), new RegExp(`statuses/${H} -f state=success -f context=verdict -f description=verdict: PASS \\(PASS by checker-1 \\(fam-b\\)`));
   r = eng('verdict', 'status');
   assert.equal(r.status, 1); assert.match(r.stderr, /usage: eng verdict status --pr <n>/);
+});
+
+test('rule 1: risk:low merges after one independent PASS on the exact head', () => {
+  const late = at(600);
+  assert.equal(decide(pr(), st(), C, late).merge, true);
+  assert.match(decide(pr(), st(), C, late).reason, /risk:low: PASS by gpt-checker/);
+  for (const v of [V({ by: 'builder-1', family: 'gpt' }), V({ by: 'x', family: 'claude', provider: 'anthropic' })])
+    assert.match(decide(pr(), st({ verdicts: [v] }), C, late).reason, /no independent verdict comment/, 'an author or an author family is not independent');
+});
+
+test('rule 2: risk:high (label, recomputed, or a gate/auth/billing path) needs PASSes from two non-author providers on the head', () => {
+  const late = at(600), H = pr({ labels: ['risk:high'] });
+  for (const f of ['scripts/pr-gate.mjs', 'lib/self-merge.mjs', '.github/workflows/self-merge.yml', 'src/auth/login.ts', 'lib/auth.mjs', 'app/billing/plan.ts'])
+    assert.equal(classifyRisk(mod(f), HR).risk, 'high', f);
+  assert.equal(decide(H, hi(), C, late).merge, true);
+  assert.match(decide(H, hi(), C, late).reason, /risk:high: PASS from openai \+ google/);
+  const cases = [
+    [H, hi({ verdicts: [V()] }), 'one provider'],
+    [H, hi({ verdicts: [V(), V({ by: 'gpt-2' })] }), 'two verifiers, same provider'],
+    [H, hi({ verdicts: [V(), V({ by: 'c2', family: 'claude-x', provider: 'anthropic' })] }), 'the authors\' provider does not count'],
+    [H, hi({ verdicts: [V(), V({ ...GEM, sha: 'b'.repeat(40) })] }), 'second PASS is for another head'],
+    [H, hi({ verdicts: [V(), V({ by: 'liar', family: 'gpt', provider: 'google' })] }), 'a provider that contradicts the family'],
+    [pr(), hi({ verdicts: [V()] }), 'labelled low, files recomputed high'],
+  ];
+  for (const [p, s, why] of cases) { const d = decide(p, s, C, late); assert.equal(d.merge, false, why); assert.match(d.reason, /two providers/, why); }
+});
+
+test('rule 3: the head must contain main\'s tip (ancestry)', () => {
+  for (const containsBase of [false, undefined]) assert.match(decide(pr(), st({ containsBase }), C, at(600)).reason, /does not contain main's tip/);
+});
+
+test('rule 4: a missing, stale or FAIL verdict refuses; each verifier\'s latest counts and any FAIL blocks', () => {
+  const late = at(600), no = s => decide(pr(), s, C, late);
+  assert.match(no(st({ verdicts: [] })).reason, /no independent verdict comment for head aaaaaaaa/);
+  assert.match(no(st({ verdicts: [V({ sha: 'b'.repeat(40) })] })).reason, /stale verdicts \(for bbbbbbbb\)/);
+  assert.match(no(st({ verdicts: [V({ result: 'FAIL' })] })).reason, /verdict FAIL by gpt-checker/);
+  assert.match(no(st({ verdicts: [V(), V({ by: 'v2', result: 'FAIL', comment_at: '2026-10-19T04:10:00Z' }), V({ by: 'v3', comment_at: '2026-10-19T04:20:00Z' })] })).reason, /FAIL by v2/, 'a later PASS by another verifier cannot outvote a FAIL');
+  assert.equal(no(st({ verdicts: [V({ result: 'FAIL' }), V({ comment_at: '2026-10-19T04:10:00Z' })] })).merge, true, 'the same verifier re-reviewing clears its own FAIL');
+  assert.equal(no(st({ verdicts: [V({ result: 'PASS+NOTES' })] })).merge, true);
+  assert.match(decide(pr({ labels: ['risk:high'] }), hi({ verdicts: [V(), GEM, V({ ...GEM, result: 'FAIL', comment_at: '2026-10-19T04:30:00Z' })] }), C, late).reason, /FAIL by gemini-checker/);
+});
+
+test('rule 5: hold and draft still stop a merge; the window also counts from the latest counted verdict', () => {
+  assert.match(decide(pr({ labels: ['risk:high', 'hold'] }), hi(), C, at(600)).reason, /hold label/);
+  assert.match(decide(pr({ labels: ['risk:high'], draft: true }), hi(), C, at(600)).reason, /draft/);
+  const lateV = st({ verdicts: [V({ comment_at: '2026-10-19T06:30:00Z' })] });
+  assert.equal(decide(pr(), lateV, C, at(209)).merge, false);
+  assert.equal(decide(pr(), lateV, C, at(210)).merge, true);
+});
+
+test('verdict comments round-trip with head SHA and provider; other comments are ignored', () => {
+  const rec = { sha: SHA, patch_id: 'p1', result: 'PASS', by: 'g1', family: 'gemini', provider: 'google', at: '2026-10-19T04:00:00Z' };
+  const got = parseVerdicts([{ body: 'LGTM', created_at: 'x' }, { body: verdictBody(rec), created_at: '2026-10-19T04:01:00Z' }, { body: `${verdictBody(rec).split('```')[0]}` }]);
+  assert.deepEqual(got, [{ ...rec, comment_at: '2026-10-19T04:01:00Z' }]);
+});
+
+test('rule 6 (pure): only the bot\'s single-commit exact inverse of the red tip counts as its auto-revert', () => {
+  const tip = { sha: 'c'.repeat(40), parentTree: 't'.repeat(40) };
+  const rv = { user: BOT, ref: `auto-revert/${'c'.repeat(12)}`, body: `<!-- eng-auto-revert of=${tip.sha} -->`, headParents: [tip.sha], headTree: tip.parentTree };
+  assert.equal(isAutoRevert(rv, tip), true);
+  for (const [k, v] of [['user', 'Mattslayga'], ['ref', 'auto-revert/x'], ['body', ''], ['headParents', ['d'.repeat(40)]], ['headTree', 'u'.repeat(40)]])
+    assert.equal(isAutoRevert({ ...rv, [k]: v }, tip), false, k);
+});
+
+// scripts/pr-gate.mjs merge against a fake gh: routes are "METHOD path" -> JSON, every call is logged.
+function gate(routes) {
+  const d = fs.mkdtempSync(path.join(process.env.ENG_TMP ?? os.tmpdir(), 'eng-prgate-'));
+  fs.writeFileSync(path.join(d, 'routes.json'), JSON.stringify(routes));
+  fs.writeFileSync(path.join(d, 'gh'), `#!/usr/bin/env node
+const fs = require('fs'), a = process.argv.slice(2), d = ${JSON.stringify(d)};
+const m = a.includes('-X') ? a[a.indexOf('-X') + 1] : 'GET', p = a.find(x => x.startsWith('repos/'));
+const body = a.includes('--input') ? fs.readFileSync(0, 'utf8') : '';
+fs.appendFileSync(d + '/calls', JSON.stringify([m, p, body ? JSON.parse(body) : null]) + '\\n');
+const r = JSON.parse(fs.readFileSync(d + '/routes.json', 'utf8')), k = m + ' ' + p, v = k in r ? r[k] : r[m + ' ' + p.split('?')[0]];
+if (v === undefined) { process.stderr.write('HTTP 404: ' + k); process.exit(1); }
+process.stdout.write(JSON.stringify(a.includes('--slurp') ? [v] : v));
+`, { mode: 0o755 });
+  const r = spawnSync(process.execPath, [path.resolve(new URL('../scripts/pr-gate.mjs', import.meta.url).pathname), 'merge'], { encoding: 'utf8', env: { ...process.env, PATH: `${d}:${process.env.PATH}`, GITHUB_REPOSITORY: 'o/r', PR: '' } });
+  const calls = fs.existsSync(path.join(d, 'calls')) ? fs.readFileSync(path.join(d, 'calls'), 'utf8').trim().split('\n').map(JSON.parse) : [];
+  fs.rmSync(d, { recursive: true, force: true });
+  return { ...r, calls, sent: calls.filter(c => c[0] !== 'GET') };
+}
+const TIP = 'c'.repeat(40), PARENT = 'd'.repeat(40), HEAD = 'e'.repeat(40), R = 'repos/o/r';
+const run = (sha, conclusion) => ({ check_runs: [{ head_sha: sha, status: 'completed', conclusion, completed_at: '2026-10-19T05:00:00Z', started_at: '2026-10-19T04:55:00Z', app: { slug: 'github-actions' } }] });
+const runs = (sha, c) => ({ [`GET ${R}/commits/${sha}/check-runs?check_name=test&filter=latest&per_page=100`]: run(sha, c) });
+
+test('rule 6: a red post-merge check on main opens the tip\'s exact inverse from the bot and merges nothing else', () => {
+  const r = gate({
+    [`GET ${R}/commits/main`]: { sha: TIP }, ...runs(TIP, 'failure'),
+    [`GET ${R}/git/commits/${TIP}`]: { message: 'feat: x (#5)', parents: [{ sha: PARENT }], tree: { sha: 'tip-tree' } },
+    [`GET ${R}/git/commits/${PARENT}`]: { tree: { sha: 'parent-tree' } },
+    [`GET ${R}/commits/${TIP}/pulls`]: [{ number: 5, merged_at: '2026-10-19T04:00:00Z', base: { ref: 'main' } }],
+    [`GET ${R}/pulls?state=open&base=main&head=o:auto-revert/${TIP.slice(0, 12)}`]: [],
+    [`POST ${R}/git/commits`]: { sha: HEAD }, [`POST ${R}/git/refs`]: {},
+    [`POST ${R}/pulls`]: { number: 9 }, [`GET ${R}/pulls/9`]: { number: 9, labels: [], base: { sha: TIP }, head: { sha: HEAD } },
+    [`GET ${R}/pulls/9/files?per_page=100`]: [{ filename: 'bin/eng.mjs', status: 'modified' }],
+    [`POST ${R}/issues/9/labels`]: {}, [`POST ${R}/actions/workflows/ci.yml/dispatches`]: {},
+  });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const [commit, ref, pull, lbl, ci] = r.sent;
+  assert.deepEqual(commit, ['POST', `${R}/git/commits`, { message: `Revert #5: post-merge test failed on main\n\n<!-- eng-auto-revert of=${TIP} -->`, tree: 'parent-tree', parents: [TIP] }], 'exact inverse: the tip\'s parent tree on top of the tip');
+  assert.deepEqual(ref, ['POST', `${R}/git/refs`, { ref: `refs/heads/auto-revert/${TIP.slice(0, 12)}`, sha: HEAD }]);
+  assert.equal(pull[1], `${R}/pulls`); assert.equal(pull[2].head, `auto-revert/${TIP.slice(0, 12)}`); assert.match(pull[2].body, /eng-auto-revert of=c{40}/);
+  assert.deepEqual(lbl, ['POST', `${R}/issues/9/labels`, { labels: ['risk:high'] }]);
+  assert.deepEqual(ci, ['POST', `${R}/actions/workflows/ci.yml/dispatches`, { ref: `auto-revert/${TIP.slice(0, 12)}` }]);
+  assert.equal(r.sent.length, 5, 'nothing merged');
+});
+
+test('rules 2 and 6: a risk:high PR with two-provider PASSes on its head merges, then the post-merge check runs on main', () => {
+  const comments = [V(), GEM].map(v => ({ body: verdictBody(v), created_at: v.comment_at }));
+  const p = { number: 3, state: 'open', title: 'fix: gate', draft: false, created_at: '2026-10-19T03:00:00Z', labels: [{ name: 'risk:high' }], base: { ref: 'main', sha: TIP }, head: { sha: SHA, ref: 'feat/x', repo: { full_name: 'o/r' } } };
+  const routes = {
+    [`GET ${R}/commits/main`]: { sha: TIP }, ...runs(TIP, 'success'), ...runs(SHA, 'success'),
+    [`GET ${R}/pulls?state=open&base=main&per_page=100`]: [p],
+    [`GET ${R}/commits/${SHA}/status`]: { statuses: [{ context: 'verdict', state: 'success', created_at: '2026-10-19T04:30:00Z' }] },
+    [`GET ${R}/pulls/3/commits?per_page=100`]: [{ commit: { message: 'fix\n\nAgent: builder-1\nAgent-Family: claude', author: { email: 't@t' } } }],
+    [`GET ${R}/issues/3/comments?per_page=100`]: comments,
+    [`GET ${R}/compare/${TIP}...${SHA}`]: { behind_by: 0 },
+    [`GET ${R}/pulls/3/files?per_page=100`]: [{ filename: 'scripts/pr-gate.mjs', status: 'modified' }],
+    [`GET ${R}/issues/3/labels`]: [{ name: 'risk:high' }],
+    [`PUT ${R}/pulls/3/merge`]: {}, [`DELETE ${R}/git/refs/heads/feat/x`]: {}, [`POST ${R}/actions/workflows/ci.yml/dispatches`]: {},
+  };
+  let r = gate(routes);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /#3 aaaaaaaa: MERGE: risk:high: PASS from openai \+ google/);
+  assert.deepEqual(r.sent.map(c => c.slice(0, 2)), [['PUT', `${R}/pulls/3/merge`], ['DELETE', `${R}/git/refs/heads/feat/x`], ['POST', `${R}/actions/workflows/ci.yml/dispatches`]]);
+  assert.deepEqual(r.sent[0][2], { merge_method: 'squash', sha: SHA, commit_title: 'fix: gate (#3)' });
+  assert.deepEqual(r.sent[2][2], { ref: 'main' });
+  r = gate({ ...routes, [`GET ${R}/compare/${TIP}...${SHA}`]: { behind_by: 1 } });
+  assert.match(r.stdout, /skip: head aaaaaaaa does not contain main's tip/); assert.equal(r.sent.length, 0);
+  r = gate({ ...routes, [`GET ${R}/issues/3/comments?per_page=100`]: comments.slice(0, 1) });
+  assert.match(r.stdout, /skip: risk:high needs PASSes/); assert.equal(r.sent.length, 0);
 });

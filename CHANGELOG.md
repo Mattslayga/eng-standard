@@ -2,6 +2,15 @@
 
 Versions follow the commit titles on `main` (`vX.Y.Z: ...`). Minor = new command, config or policy area; patch = rule or doc addition to an existing area. History before 0.7.1 is in `git log`.
 
+## 0.9.1 (24 Oct 2026)
+
+- **Two-provider self-merge** (Option A, approved by Matt, 24 Oct 2026, 3:03 PM AEDT) for eng-standard's own `self-merge.yml`:
+  - risk:low merges after one independent PASS on the exact head. risk:high (including auth and billing paths, now in `ship.high_risk.paths`) merges after PASSes from two verifiers on two different providers, neither the authors'. Before this, risk:high waited for Matt.
+  - The head must contain main's tip. A missing, stale or FAIL verdict refuses; each verifier's latest verdict counts and any FAIL blocks. Hold, draft and the hold window are kept; the window also counts from the latest counted verdict.
+  - A red post-merge `test` on main opens the tip's exact inverse as an `auto-revert/<sha12>` PR from `github-actions[bot]`. It is the only PR that may merge while main is red, and it still needs verdicts. The workflow gains `pull-requests: write`.
+  - `eng verdict ... --pr <n>` also posts an `eng-verdict/v1` PR comment (head SHA, family, provider); self-merge reads verdicts from those. Comment format, `parseVerdicts` and `authorsFrom` come from PR #20.
+  - `FAMILY_PROVIDER` moves to `lib/self-merge.mjs` (a risk:high path); `lib/renovate.mjs` re-exports it.
+
 ## 0.9.0 (23 Oct 2026)
 
 - **Renovation pack** (spec v1, approved by Matt, 23 Oct 2026): `eng renovate` brings an existing repo up to the standard through normal PRs. It never merges, never edits rulesets or protection and never touches prod. Lead guide: `renovation/README.md`.
