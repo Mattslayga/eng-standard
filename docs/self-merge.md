@@ -32,6 +32,10 @@ Self-merge merges a PR only when **all** hold:
   `hold_minutes` ago. A comment's time is its last edit (`max(created_at, updated_at)`), both for which verdict is a
   verifier's latest and for the window: editing a comment restarts the window.
 
+GitHub lists at most 3,000 files and 250 commits for a PR. When the listed files fall short of the PR's
+`changed_files`, the PR is risk:high; when the listed commits fall short of its `commits`, the authors are unknown and
+the PR is skipped. An incomplete list is never evidence.
+
 A new push gives a new head SHA, so everything must go green again for it and the window restarts. `hold` is checked
 again just before the merge call. Dispatch inputs cannot shorten the window.
 

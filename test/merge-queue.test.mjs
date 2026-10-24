@@ -241,6 +241,19 @@ test('every file eng-standard\'s trusted controller workflows run or import is r
   for (const f of files) assert.ok(root.some(g => glob2re(g).test(f)), `${f} is in ship.high_risk.paths`);
 });
 
+test('eng merge gate reads authors from the PR\'s git history, not only the capped commits API (openai r9 P1)', () => {
+  setMode('strict');
+  prWith('bin/many.mjs');
+  fs.writeFileSync(path.join(dir, 'bin/many.mjs'), 'later\n'); git('add -A'); git('commit -qm later -m "Agent: gpt-builder\nAgent-Family: gpt"');
+  const head = git('rev-parse HEAD'), patch = pidOf(`origin/main ${head}`), evp = path.join(dir, '.gh/event-many.json');
+  fs.writeFileSync(evp, JSON.stringify({ pull_request: { number: 7, head: { sha: head } } }));
+  put('repos/o/r/pulls/7', { number: 7, labels: [], body: '', user: { login: 'builder' }, head: { sha: head, ref: 'feat' }, base: { ref: 'main' } });
+  comments([V({ patch_id: patch, sha: head }), V({ patch_id: patch, sha: head, by: 'gemini-1', family: 'gemini', provider: 'google' })]);
+  const r = eng(['merge', 'gate'], { GITHUB_EVENT_PATH: evp });
+  assert.equal(r.status, 1, 'the API listed only the claude commit, but a gpt author wrote the head, so the gpt PASS cannot be the second provider');
+  assert.match(r.stdout, /need PASSes from two providers other than the authors' \(have google\)/);
+});
+
 test('eng merge gate counts verdicts like self-merge (PR #21): outsiders, prototype families and edits', () => {
   setMode('strict');
   const pr = prWith('docs/trust.md'), v = o => V({ patch_id: pr.patch, sha: pr.head, ...o });
