@@ -4,7 +4,7 @@ name: merge-post
 on:
   push:
     branches: [main]
-  workflow_dispatch:
+  workflow_dispatch:                # eng merge watch dispatches it when main's tip has no run (a bot-armed merge fires no push)
 concurrency:
   group: merge-post
   cancel-in-progress: false

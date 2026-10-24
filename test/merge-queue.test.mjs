@@ -232,6 +232,10 @@ test('eng merge watch --dry-run: stuck flag, restart on FAIL, update-branch for 
   put('repos/o/r/pulls?state=open&base=main&per_page=100', [[{ ...pr8, auto_merge: { merge_method: 'squash' } }]]);
   r = eng(['merge', 'watch', '--dry-run']);
   assert.match(r.stdout, /#8: behind main with auto-merge on: would update the branch/);
+  put('repos/o/r/commits/main', { sha: 'd'.repeat(40), commit: { committer: { date: old } } });
+  put(`repos/o/r/actions/workflows/merge-post.yml/runs?head_sha=${'d'.repeat(40)}&per_page=1`, { workflow_runs: [] });
+  r = eng(['merge', 'watch', '--dry-run']);
+  assert.match(r.stdout, /main dddddddd has no merge-post.yml run: would dispatch it/, 'a bot-armed merge still gets its post-merge check');
 });
 
 test('eng merge watch --dry-run: re-arms auto-merge once the gate passes; the hold label disarms it', () => {
