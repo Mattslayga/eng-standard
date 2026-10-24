@@ -1,6 +1,6 @@
 # Tests (check `test`), on the PR's own code. The required check is `eng-merge-gate`, which the trusted gate.yml posts as a
 # commit status after reading this result: a PR can edit this file, but not gate.yml (pull_request_target runs main's copy).
-# In queue mode the merge_group run of this file reports eng-merge-gate for the queued commit.
+# In queue mode its queued-gate job posts eng-merge-gate for the queued commit.
 name: ci
 on:
   pull_request:
@@ -27,7 +27,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: node bin/eng.mjs --help
-  eng-merge-gate:                   # queue mode only: the queued commit's gate (patch-id binding)
+  queued-gate:                      # queue mode only: posts eng-merge-gate for the queued commit (patch-id binding). Never name a job eng-merge-gate
     if: github.event_name == 'merge_group'
     needs: test
     runs-on: ubuntu-latest
@@ -35,6 +35,7 @@ jobs:
       contents: read
       pull-requests: read
       issues: read
+      statuses: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,6 +44,6 @@ jobs:
         with:
           node-version: 20
       - run: npm ci --ignore-scripts
-      - run: node bin/eng.mjs merge gate --config-from origin/main
+      - run: node bin/eng.mjs merge gate --post-status --config-from origin/main
         env:
           GH_TOKEN: ${{ github.token }}
