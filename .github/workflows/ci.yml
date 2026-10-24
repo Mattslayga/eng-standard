@@ -1,5 +1,6 @@
-# The ONE required check (merge rule v0.10.0, AGENTS.md): job `test` = tests + the merge gate, on pull_request, on
-# merge_group (queue mode, where the repo has one) and on dispatch for auto-reverts. The gate runs main's code and main's eng.config.yml, so a PR cannot pass its own gate by editing it.
+# Tests (check `test`), on the PR's own code. The required check is `eng-merge-gate`, which the trusted gate.yml posts as a
+# commit status after reading this result: a PR can edit this file, but not gate.yml (pull_request_target runs main's copy).
+# In queue mode the merge_group run of this file reports eng-merge-gate for the queued commit.
 name: ci
 on:
   pull_request:
@@ -15,12 +16,25 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
-  pull-requests: read
-  issues: read
-  actions: read
 jobs:
   test:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm test
+      - run: node bin/eng.mjs --help
+  eng-merge-gate:                   # queue mode only: the queued commit's gate (patch-id binding)
+    if: github.event_name == 'merge_group'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,19 +42,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci
-      - run: npm test
-      - run: node bin/eng.mjs --help
-      - name: merge gate (independent verdict for this exact patch-id)
+      - run: npm ci --ignore-scripts
+      - run: node bin/eng.mjs merge gate --config-from origin/main
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          git fetch -q origin main
-          git worktree add -q "$RUNNER_TEMP/base" origin/main
-          (cd "$RUNNER_TEMP/base" && npm ci --ignore-scripts --silent)
-          if node "$RUNNER_TEMP/base/bin/eng.mjs" merge 2>&1 | grep -q 'usage: eng merge gate'; then
-            node "$RUNNER_TEMP/base/bin/eng.mjs" merge gate --config-from origin/main
-          else
-            echo "BOOTSTRAP: origin/main has no merge gate yet, so this runs the PR's own gate. Only the PR that adds the gate takes this path."
-            node bin/eng.mjs merge gate
-          fi

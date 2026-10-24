@@ -13,6 +13,8 @@ permissions:
   pull-requests: write
   issues: write
   checks: read
+  statuses: read
+  actions: write                    # dispatch merge-post.yml when a bot-armed merge fired no push run
 jobs:
   watch:
     if: github.ref == 'refs/heads/main'

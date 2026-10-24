@@ -16,8 +16,11 @@ merge:                            # The merge rule (AGENTS.md). No PR needs a hu
   method: squash
   auto:
     mode: strict                  # strict: PR up to date with main, PASS bound to the exact head (default). queue: merge queue, PASS bound to the queued patch-id (optional speed-up; eng doctor says which the repo can run)
-    check: test                   # the ONE required check: job `test` in .github/workflows/ci.yml = tests + eng merge gate
+    check: eng-merge-gate         # the ONE required check: a commit status from the trusted .github/workflows/gate.yml
+    tests_check: test             # the PR's own tests (ci.yml job test); the gate waits for it
     workflow: ci.yml
+    gate_workflow: gate.yml
+    # gate_app_id: <id>           # a GitHub App that posts eng-merge-gate; the ruleset then binds the check to it (eng doctor fails until set)
     base: main
     # A PR touching these also needs a second PASS from a verifier on a different provider (gate, auth, billing).
     second_provider_paths:

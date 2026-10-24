@@ -138,6 +138,7 @@ before(() => {
 printf '%s\\n' "$*" >> "$GH_CALLS"
 [[ "$1" == "pr" && "$2" == "view" ]] && { echo "{\\"headRefOid\\":\\"$(git rev-parse HEAD)\\",\\"state\\":\\"OPEN\\"}"; exit 0; }
 p=""; for x in "$@"; do [[ "$x" == repos/* ]] && p="$x"; done
+[[ -n "$FAKE_GH_FAIL" && "$p" == *"$FAKE_GH_FAIL"* ]] && { echo "HTTP 403: Resource not accessible by integration" >&2; exit 1; }
 k=$(printf '%s' "$p" | sed 's/[^A-Za-z0-9]\\{1,\\}/_/g')
 if [[ -n "$p" && -f "$GH_DIR/$k" ]]; then cat "$GH_DIR/$k"; else echo '{}'; fi
 `, { mode: 0o755 });
@@ -170,7 +171,7 @@ test('eng merge gate, strict (pull_request): PASS bound to the exact head; a beh
   let pr = prWith('docs/guide.md');
   comments([]);
   let r = eng(['merge', 'gate'], { GITHUB_EVENT_PATH: pr.evp });
-  assert.equal(r.status, 1, r.stdout + r.stderr); assert.match(r.stdout, /test: FAIL for PR #7 head [0-9a-f]{8} \(strict\), bound to head/); assert.match(r.stdout, /self-declared/);
+  assert.equal(r.status, 1, r.stdout + r.stderr); assert.match(r.stdout, /eng-merge-gate: FAIL for PR #7 head [0-9a-f]{8} \(strict\), bound to head/); assert.match(r.stdout, /self-declared/);
   comments([V({ patch_id: pr.patch, sha: pr.head })]);
   r = eng(['merge', 'gate'], { GITHUB_EVENT_PATH: pr.evp });
   assert.equal(r.status, 0, r.stdout + r.stderr);
@@ -214,6 +215,36 @@ test('eng merge gate: an auto-revert passes only from the bot, on its branch, fo
   r = eng(['merge', 'gate'], { GITHUB_EVENT_PATH: dispatch, GITHUB_SHA: head }); assert.equal(r.status, 1); assert.match(r.stdout, /is not on main/);
 });
 
+test('eng merge gate --post-status (trusted gate.yml): waits for tests, posts the required status, catches a forged check (round-2 P1)', () => {
+  setMode('strict');
+  const pr = prWith('docs/trusted.md');
+  comments([V({ patch_id: pr.patch, sha: pr.head })]);
+  const runs = list => put(`repos/o/r/commits/${pr.head}/check-runs?per_page=100`, { check_runs: list });
+  const posted = () => fs.readFileSync(calls, 'utf8').split('\n').filter(l => l.includes(`statuses/${pr.head}`));
+  runs([{ id: 1, name: 'test', status: 'completed', conclusion: 'success', app: { slug: 'github-actions' } }]); fs.writeFileSync(calls, '');
+  let r = eng(['merge', 'gate', '--post-status', '--pr', '7']);
+  assert.equal(r.status, 0, r.stdout + r.stderr); assert.equal(posted().length, 2, 'pending, then the result');
+  runs([{ id: 1, name: 'test', status: 'completed', conclusion: 'failure', app: { slug: 'github-actions' } }]);
+  r = eng(['merge', 'gate', '--post-status', '--pr', '7']); assert.equal(r.status, 1); assert.match(r.stdout, /test is failure on this head/);
+  runs([{ id: 1, name: 'test', status: 'completed', conclusion: 'success', app: { slug: 'github-actions' } }, { id: 2, name: 'eng-merge-gate', status: 'completed', conclusion: 'success', app: { slug: 'github-actions' } }]);
+  r = eng(['merge', 'gate', '--post-status', '--pr', '7']); assert.equal(r.status, 1); assert.match(r.stdout, /a PR workflow is impersonating it/);
+});
+
+test('eng merge gate: a whitespace-only "inverse" that changes behaviour is not an exact inverse (round-2 P1)', () => {
+  git('checkout -q --detach origin/main'); fs.mkdirSync(path.join(dir, 'src/auth'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'src/auth/permit.py'), 'def permit():\n    if False:\n        return True\n    return False\n'); git('add -A'); git('commit -qm permit'); git('update-ref refs/remotes/origin/main HEAD');
+  fs.writeFileSync(path.join(dir, 'src/auth/permit.py'), 'def permit():\n    if False:\n        return False\n    return False\n'); git('commit -qam shipped'); const shipped = git('rev-parse HEAD'); git('update-ref refs/remotes/origin/main HEAD');
+  git(`checkout -q -B auto-revert/${shipped.slice(0, 12)} origin/main`);
+  // the "revert": restores the old line text but with different indentation, so the function now returns True
+  fs.writeFileSync(path.join(dir, 'src/auth/permit.py'), 'def permit():\n    if False:\n    return True\n    return False\n');
+  git('commit -qam "Revert shipped"'); const head = git('rev-parse HEAD');
+  assert.equal(pidOf(`origin/main ${head}`), pidOf(`${shipped} ${shipped}^`), 'patch-id cannot tell them apart');
+  put('repos/o/r/pulls/12', { number: 12, labels: [{ name: 'auto-revert' }], body: `<!-- eng-auto-revert of=${shipped} -->`, user: { login: BOT }, head: { sha: head, ref: `auto-revert/${shipped.slice(0, 12)}` }, base: { ref: 'main' } });
+  put('repos/o/r/pulls/12/commits?per_page=100', [[{ commit: { message: 'Revert', author: { email: 'bot@x' } } }]]); comments([], 12);
+  const r = eng(['merge', 'gate', '--pr', '12']);
+  assert.equal(r.status, 1, r.stdout + r.stderr); assert.match(r.stdout, /not its exact inverse/);
+});
+
 test('eng merge watch --dry-run: stuck flag, restart on FAIL, update-branch for a behind auto-merge PR', () => {
   git('checkout -q -B feat2 origin/main'); fs.writeFileSync(path.join(dir, 'w.md'), 'w\n'); git('add -A'); git('commit -qm w -m "Agent: builder-9\nAgent-Family: claude"');
   const head = git('rev-parse HEAD'), old = new Date(Date.now() - 45 * 60e3).toISOString();
@@ -221,7 +252,7 @@ test('eng merge watch --dry-run: stuck flag, restart on FAIL, update-branch for 
   put('repos/o/r/pulls?state=open&base=main&per_page=100', [[pr8]]);
   put('repos/o/r/pulls/8/commits?per_page=100', [[{ commit: { message: 'w\n\nAgent: builder-9\nAgent-Family: claude', author: { email: 't@t' }, committer: { date: old } } }]]);
   comments([V({ patch_id: 'x', sha: head, result: 'FAIL', evidence: 'nd7e' })], 8);
-  put(`repos/o/r/commits/${head}/check-runs?check_name=test&filter=latest`, { check_runs: [{ status: 'completed', conclusion: 'failure', completed_at: old }] });
+  put(`repos/o/r/commits/${head}/status`, { statuses: [{ context: 'eng-merge-gate', state: 'failure', updated_at: old, created_at: old }] });
   fs.writeFileSync(calls, '');
   let r = eng(['merge', 'watch', '--dry-run']);
   assert.equal(r.status, 0, r.stdout + r.stderr);
@@ -236,6 +267,8 @@ test('eng merge watch --dry-run: stuck flag, restart on FAIL, update-branch for 
   put(`repos/o/r/actions/workflows/merge-post.yml/runs?head_sha=${'d'.repeat(40)}&per_page=1`, { workflow_runs: [] });
   r = eng(['merge', 'watch', '--dry-run']);
   assert.match(r.stdout, /main dddddddd has no merge-post.yml run: would dispatch it/, 'a bot-armed merge still gets its post-merge check');
+  r = eng(['merge', 'watch'], { FAKE_GH_FAIL: 'actions/workflows/merge-post.yml/dispatches' });
+  assert.equal(r.status, 1, 'a failed recovery dispatch turns the watch job red (round-2 P1)'); assert.match(r.stdout, /FAIL could not give main its merge-post.yml run/);
 });
 
 test('eng merge watch --dry-run: re-arms auto-merge once the gate passes; the hold label disarms it', () => {
@@ -244,7 +277,7 @@ test('eng merge watch --dry-run: re-arms auto-merge once the gate passes; the ho
   const base = { number: 11, draft: false, head: { sha: head, ref: 'feat5' }, base: { ref: 'main' }, labels: [], updated_at: now, body: '', html_url: 'https://x/11', user: { login: 'b' } };
   put('repos/o/r/pulls/11/commits?per_page=100', [[{ commit: { message: 'a5\n\nAgent: builder-9\nAgent-Family: claude', author: { email: 't@t' }, committer: { date: now } } }]]);
   comments([V({ patch_id: 'x', sha: head })], 11);
-  put(`repos/o/r/commits/${head}/check-runs?check_name=test&filter=latest`, { check_runs: [{ status: 'completed', conclusion: 'success', completed_at: now }] });
+  put(`repos/o/r/commits/${head}/status`, { statuses: [{ context: 'eng-merge-gate', state: 'success', updated_at: now, created_at: now }] });
   put('repos/o/r/pulls?state=open&base=main&per_page=100', [[base]]);
   let r = eng(['merge', 'watch', '--dry-run']);
   assert.match(r.stdout, /#11: gate PASS, auto-merge off: would re-arm it/);
@@ -258,7 +291,7 @@ test('eng merge watch: a failed restart delivery is retried, and noted once (rou
   const head = git('rev-parse HEAD'), now = new Date().toISOString();
   put('repos/o/r/pulls?state=open&base=main&per_page=100', [[{ number: 10, draft: false, head: { sha: head, ref: 'feat4' }, base: { ref: 'main' }, labels: [], updated_at: now, body: '', html_url: 'https://x/10', user: { login: 'b' } }]]);
   put('repos/o/r/pulls/10/commits?per_page=100', [[{ commit: { message: 'r\n\nAgent: builder-9\nAgent-Family: claude', author: { email: 't@t' }, committer: { date: now } } }]]);
-  put(`repos/o/r/commits/${head}/check-runs?check_name=test&filter=latest`, { check_runs: [{ status: 'completed', conclusion: 'failure', completed_at: now }] });
+  put(`repos/o/r/commits/${head}/status`, { statuses: [{ context: 'eng-merge-gate', state: 'failure', updated_at: now, created_at: now }] });
   const failV = V({ patch_id: 'x', sha: head, result: 'FAIL' }), key = `fail:verifier-1:2026-10-24T00:00:00Z`;
   comments([failV], 10); fs.writeFileSync(calls, '');
   eng(['merge', 'watch'], { ENG_RESTART_WEBHOOK: 'https://hook', FAKE_CURL_EXIT: '22' });
