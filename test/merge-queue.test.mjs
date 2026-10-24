@@ -218,6 +218,53 @@ test('eng merge gate: renaming a file out of an auth path still needs the second
   assert.equal(r.status, 1, r.stdout + r.stderr); assert.match(r.stdout, /src\/auth\/policy\.ts.*need PASSes from two providers/);
 });
 
+test('eng merge gate: a non-ASCII, tab or newline filename under a gate path still needs the second provider (round-4 P1)', () => {
+  setMode('strict');
+  for (const name of ['.github/workflows/déploy.yml', '.github/workflows/de\tploy.yml', 'src/auth/a\nb.ts']) {
+    git('checkout -q -B odd origin/main'); fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true }); fs.writeFileSync(path.join(dir, name), 'x\n');
+    git('add -A'); git('commit -qm odd -m "Agent: builder-1\nAgent-Family: claude"'); const head = git('rev-parse HEAD');
+    put('repos/o/r/pulls/14', { number: 14, labels: [], body: '', user: { login: 'b' }, head: { sha: head, ref: 'odd' }, base: { ref: 'main' } });
+    put('repos/o/r/pulls/14/commits?per_page=100', [[{ commit: { message: 'odd\n\nAgent: builder-1\nAgent-Family: claude', author: { email: 't@t' } } }]]);
+    comments([V({ patch_id: 'x', sha: head })], 14);
+    const r = eng(['merge', 'gate', '--pr', '14']);
+    assert.equal(r.status, 1, `${JSON.stringify(name)}: ${r.stdout}${r.stderr}`); assert.match(r.stdout, /need PASSes from two providers/);
+  }
+});
+
+test('eng merge gate + watch: an auto-revert that main moved past is behind, gets updated and re-dispatched, then passes (round-4 P1)', () => {
+  setMode('strict');
+  git('checkout -q --detach origin/main'); fs.writeFileSync(path.join(dir, 'shipped-bad.txt'), 'bad\n'); git('add -A'); git('commit -qm "ship bad"');
+  const bad = git('rev-parse HEAD'), branch = `auto-revert/${bad.slice(0, 12)}`; git('update-ref refs/remotes/origin/main HEAD');
+  git(`checkout -q -B ${branch} origin/main`); git('revert --no-edit HEAD'); const head = git('rev-parse HEAD');
+  // another PR merges while the revert waits: main moves past the revert's fork point
+  git('checkout -q --detach origin/main'); fs.writeFileSync(path.join(dir, 'unrelated.md'), 'u\n'); git('add -A'); git('commit -qm unrelated'); git('update-ref refs/remotes/origin/main HEAD');
+  const now = new Date().toISOString();
+  const pr = h => ({ number: 15, draft: false, labels: [{ name: 'auto-revert' }], body: `<!-- eng-auto-revert of=${bad} -->`, user: { login: BOT }, head: { sha: h, ref: branch }, base: { ref: 'main' }, updated_at: now, html_url: 'https://x/15', auto_merge: { merge_method: 'squash' } });
+  put('repos/o/r/pulls/15', pr(head)); put('repos/o/r/pulls/15/commits?per_page=100', [[{ commit: { message: 'Revert', author: { email: 'bot@x' }, committer: { date: now } } }]]); comments([], 15);
+  let r = eng(['merge', 'gate', '--pr', '15']);
+  assert.equal(r.status, 1); assert.match(r.stdout, /auto-revert is behind the base: update the branch/); assert.doesNotMatch(r.stdout, /not its exact inverse/);
+  put('repos/o/r/pulls?state=open&base=main&per_page=100', [[pr(head)]]);
+  put(`repos/o/r/commits/${head}/status`, { statuses: [{ context: 'eng-merge-gate', state: 'failure', updated_at: now, created_at: now }] });
+  assert.match(eng(['merge', 'watch', '--dry-run']).stdout, /#15: behind main with auto-merge on: would update the branch/);
+  // GitHub's update-branch: a merge from main onto the revert branch. A GITHUB_TOKEN push starts no workflows, so watch dispatches them.
+  git(`checkout -q ${branch}`); git('merge -q --no-edit origin/main'); const updated = git('rev-parse HEAD');
+  put('repos/o/r/pulls/15', pr(updated)); fs.writeFileSync(calls, '');
+  r = eng(['merge', 'watch']);
+  assert.match(r.stdout, /#15: dispatched ci\.yml for the updated head/); assert.match(r.stdout, /#15: dispatched gate\.yml for the updated head/);
+  assert.match(fs.readFileSync(calls, 'utf8'), /pulls\/15\/update-branch/);
+  r = eng(['merge', 'gate', '--pr', '15']);
+  assert.equal(r.status, 0, r.stdout + r.stderr); assert.match(r.stdout, /auto-revert of [0-9a-f]{8} by github-actions\[bot\]/);
+  // the updated head is checked against main's tip: an extra change slipped into the merge is not the exact inverse
+  fs.writeFileSync(path.join(dir, 'sneak.txt'), 's\n'); git('add -A'); git('commit -qm sneak'); put('repos/o/r/pulls/15', pr(git('rev-parse HEAD')));
+  r = eng(['merge', 'gate', '--pr', '15']); assert.equal(r.status, 1); assert.match(r.stdout, /not its exact inverse/);
+});
+
+test('eng doctor runs to its verdict on a config with no stack (eng-standard itself; google round-4 note)', () => {
+  git('checkout -q --detach origin/main');
+  const r = eng(['doctor']), all = r.stdout + r.stderr;
+  assert.doesNotMatch(all, /TypeError|Cannot read properties/); assert.match(all, /eng doctor: PASS|doctor: \d+ disk-hygiene problem/);
+});
+
 test('eng merge gate: an auto-revert passes only from the bot, on its branch, for a shipped commit; dispatch carries the PR (round-1 P1s)', () => {
   git('checkout -q --detach origin/main'); fs.writeFileSync(path.join(dir, 'bad.txt'), 'bad\n'); git('add -A'); git('commit -qm bad');
   const bad = git('rev-parse HEAD'); git('update-ref refs/remotes/origin/main HEAD');
@@ -289,6 +336,7 @@ test('eng merge watch --dry-run: stuck flag, restart on FAIL, update-branch for 
   put(`repos/o/r/actions/workflows/merge-post.yml/runs?head_sha=${'d'.repeat(40)}&per_page=1`, { workflow_runs: [] });
   r = eng(['merge', 'watch', '--dry-run']);
   assert.match(r.stdout, /main dddddddd has no merge-post.yml run: would dispatch it/, 'a bot-armed merge still gets its post-merge check');
+  put('repos/o/r/pulls/8', { ...pr8, head: { ...pr8.head, sha: 'e'.repeat(40) } }); // GitHub has applied the update-branch
   r = eng(['merge', 'watch'], { FAKE_GH_FAIL: 'actions/workflows/merge-post.yml/dispatches' });
   assert.equal(r.status, 1, 'a failed recovery dispatch turns the watch job red (round-2 P1)'); assert.match(r.stdout, /FAIL could not give main its merge-post.yml run/);
 });

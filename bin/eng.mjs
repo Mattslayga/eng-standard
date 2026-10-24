@@ -301,7 +301,8 @@ function lintHits(cfg) {
   const files = sh('git ls-files --cached --others --exclude-standard').split('\n').filter(f => f && !f.startsWith('.eng/rule-proofs/') && fs.existsSync(path.join(ROOT, f)));
   // Files eng sync writes (drift-tracked: rendered + vendored) are owned by the standard, not this repo. The drift
   // check forbids editing them, so repo lint rules must not flag them either (fix such hits upstream in eng-standard).
-  const managed = new Set([...Object.keys(render(loadConfig())), ...Object.keys(JSON.parse(readOr('.eng/lock.json', '{}')).files || {})]);
+  // A config with no stack renders nothing (eng-standard itself: it does not sync its own files).
+  const c = loadConfig(), managed = new Set([...Object.keys(c.stack ? render(c) : {}), ...Object.keys(JSON.parse(readOr('.eng/lock.json', '{}')).files || {})]);
   const own = files.filter(f => !managed.has(f));
   return builtinRules(cfg).flatMap(r => lintFiles(r, own, ROOT));
 }
