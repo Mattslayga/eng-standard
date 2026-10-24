@@ -15,6 +15,18 @@ Versions follow the commit titles on `main` (`vX.Y.Z: ...`). Minor = new command
 - **Removed:** `self-merge.yml`, `risk-label.yml`, `scripts/pr-gate.mjs`, `lib/self-merge.mjs`, `lib/risk.mjs`, `docs/self-merge.md`, `ship.high_risk` and `ship.self_merge`.
 - `npm test` is now `node --test test/*.test.mjs`, so it works on Node 20 and Node 24.
 
+## 0.9.1 (24 Oct 2026)
+
+Scratch and disk hygiene, from Warden's audit (Oct 2026): a motus proof script's mkdtemp in /tmp, Core Edge Rust targets in /tmp, equitus Deno caches per run, Docker anonymous volumes.
+
+- **Scratch rounds.** One repo-owned scratch root, `hygiene.scratch_root` (default `${XDG_CACHE_HOME}/eng/${repo}/scratch`, never /tmp). `eng launch [--ref r] -- <cmd>` and the new `eng verdict round [--ref r] -- <cmd>` run the command in a 0700 worktree inside one round dir, and a trap removes the round on exit, failure or SIGINT/SIGTERM/SIGHUP. `eng launch --keep` is the persistent form (bare `eng launch` now asks for `--` or `--keep`). `eng gate`, `eng e2e`, `eng renovate prove`, `eng verify create` and `eng laws` use the same root; nothing eng makes lands in bare /tmp. `launch.tmp` is gone.
+- **Shared caches.** `hygiene.caches` declares one Cargo target, Vite, Bun and Deno cache per repo. eng exports `CARGO_TARGET_DIR` (+ `CARGO_INCREMENTAL=0`), `ENG_VITE_CACHE_DIR`, `BUN_INSTALL_CACHE_DIR`, a stable `DENO_DIR` and `ENG_CONTAINER_LABEL` to every child.
+- **Containers.** `eng clean --containers [--apply]` removes this repo's labelled containers with their volumes, and its labelled volumes.
+- **Evidence per PR.** e2e evidence goes to `<evidence_dir>/pr-<n>/<sha>/`. `eng clean --evidence [--apply]` deletes merged or closed PRs' dirs and reports the rest.
+- **Built-in disk rules in `eng lint`** (`hygiene.disk_lint`, on by default; each bites its fixture): `script-bare-tmpdir`, `cargo-target-tmp`, `deno-dir-unstable`, `container-no-rm`, `volume-prune-all` (bans `docker volume prune -a`), `credential-to-disk`. Upgrading repos may see new findings: fix them or baseline them (`eng renovate baseline --kind lint`).
+- **`eng doctor`** (gate `doctor`) fails a config that skips the scratch root, the cache for each toolchain the repo uses, the Vite `cacheDir`, the container label, `hygiene.evidence: per_pr` or the disk rules, and lists disk-rule findings.
+- SHIPPING.md §5 and the AGENTS.md block describe the rules. The test suite keeps eng's scratch and caches inside each run (`XDG_CACHE_HOME`).
+
 ## 0.9.0 (23 Oct 2026)
 
 - **Renovation pack** (spec v1, approved by Matt, 23 Oct 2026): `eng renovate` brings an existing repo up to the standard through normal PRs. It never merges, never edits rulesets or protection and never touches prod. Lead guide: `renovation/README.md`.

@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { flakeVerdict, parseResults, validateFlake, flakeRuns } from '../lib/flake.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+// eng's scratch root and shared caches live under XDG_CACHE_HOME: keep them inside this run, never in the real ~/.cache.
+process.env.XDG_CACHE_HOME = fs.mkdtempSync(path.join(process.env.ENG_TMP ?? os.tmpdir(), 'eng-xdg-'));
+process.on('exit', () => fs.rmSync(process.env.XDG_CACHE_HOME, { recursive: true, force: true }));
 
 test('flake rule: all pass = blocking, all fail = failing, mixed = quarantine, short = incomplete', () => {
   assert.equal(flakeVerdict([true, true, true]).verdict, 'blocking');
