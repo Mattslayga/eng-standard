@@ -24,7 +24,7 @@ Matt decided the rule on 24 Oct 2026 at 10:31 AM AEDT, then option 2 at 11:22 AM
 | Verdict | `eng verdict PASS\|PASS+NOTES\|FAIL ... --pr <n>` | A git note, a PR comment (`<!-- eng-verdict/v1 -->` + JSON), the `verdict` commit status, then a re-run of the required check on that head |
 | Verifier identity | `merge.auto.verifier_logins` | When set, only comments written by a listed GitHub login count, and their provider is the login's. When unset, the claims are self-declared, because every agent on the devbox posts as one GitHub identity. `eng doctor` fails the check until it is set |
 | Post-merge | `merge-post.yml` → `eng merge post` | `scripts/shipped-artifact-check.sh` on main. On failure it opens `auto-revert/<sha12>`, labels it, turns on auto-merge and dispatches `ci.yml` with `pr`. It never reverts a revert; it escalates instead |
-| Watch | `merge-watch.yml` → `eng merge watch` | Every 10 min: `stuck` label; owner restart; update-branch for a behind auto-merge PR in strict mode |
+| Watch | `merge-watch.yml` → `eng merge watch` | Every 10 min: `stuck` label; owner restart; update-branch for a behind auto-merge PR in strict mode; re-arms auto-merge once the gate passes (GitHub turns it off after a failed check); disarms it on the `hold` label |
 
 ## GitHub settings (an admin applies them; `eng merge settings` prints them)
 
@@ -32,8 +32,9 @@ Matt decided the rule on 24 Oct 2026 at 10:31 AM AEDT, then option 2 at 11:22 AM
 
 1. `gh api -X PATCH repos/Slaytek-Systems/eng-standard -F allow_auto_merge=true -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F delete_branch_on_merge=true`
 2. Replace ruleset `main: test + verdict` with the one `eng merge settings` prints: strict, required check `test` only (the gate reads the verdict itself), squash only, no bypass actors.
-3. Repo secret `ENG_RESTART_WEBHOOK`: the URL that restarts an owning job. Without it, `eng merge watch` only comments.
-4. Give each verifier provider its own GitHub identity (a bot account or GitHub App), and list it in `merge.auto.verifier_logins`.
+3. Allow GitHub Actions to create pull requests (repo Actions settings; the `Slaytek-Systems` org currently forbids it, HTTP 409/403). Without it the auto-revert branch is pushed but its PR is refused, and `eng merge post` says so. `eng doctor` checks this.
+4. Repo secret `ENG_RESTART_WEBHOOK`: the URL that restarts an owning job. Without it, `eng merge watch` only comments.
+5. Give each verifier provider its own GitHub identity (a bot account or GitHub App), and list it in `merge.auto.verifier_logins`.
 
 ## This PR is the bootstrap
 

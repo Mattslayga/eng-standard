@@ -234,6 +234,21 @@ test('eng merge watch --dry-run: stuck flag, restart on FAIL, update-branch for 
   assert.match(r.stdout, /#8: behind main with auto-merge on: would update the branch/);
 });
 
+test('eng merge watch --dry-run: re-arms auto-merge once the gate passes; the hold label disarms it', () => {
+  git('checkout -q -B feat5 origin/main'); fs.writeFileSync(path.join(dir, 'a5.md'), 'a\n'); git('add -A'); git('commit -qm a5 -m "Agent: builder-9\nAgent-Family: claude"');
+  const head = git('rev-parse HEAD'), now = new Date().toISOString();
+  const base = { number: 11, draft: false, head: { sha: head, ref: 'feat5' }, base: { ref: 'main' }, labels: [], updated_at: now, body: '', html_url: 'https://x/11', user: { login: 'b' } };
+  put('repos/o/r/pulls/11/commits?per_page=100', [[{ commit: { message: 'a5\n\nAgent: builder-9\nAgent-Family: claude', author: { email: 't@t' }, committer: { date: now } } }]]);
+  comments([V({ patch_id: 'x', sha: head })], 11);
+  put(`repos/o/r/commits/${head}/check-runs?check_name=test&filter=latest`, { check_runs: [{ status: 'completed', conclusion: 'success', completed_at: now }] });
+  put('repos/o/r/pulls?state=open&base=main&per_page=100', [[base]]);
+  let r = eng(['merge', 'watch', '--dry-run']);
+  assert.match(r.stdout, /#11: gate PASS, auto-merge off: would re-arm it/);
+  put('repos/o/r/pulls?state=open&base=main&per_page=100', [[{ ...base, labels: [{ name: 'hold' }], auto_merge: { merge_method: 'squash' } }]]);
+  r = eng(['merge', 'watch', '--dry-run']);
+  assert.match(r.stdout, /#11: hold: would turn auto-merge off/); assert.doesNotMatch(r.stdout, /would re-arm/);
+});
+
 test('eng merge watch: a failed restart delivery is retried, and noted once (round-1 P2)', () => {
   git('checkout -q -B feat4 origin/main'); fs.writeFileSync(path.join(dir, 'r.md'), 'r\n'); git('add -A'); git('commit -qm r -m "Agent: builder-9\nAgent-Family: claude"');
   const head = git('rev-parse HEAD'), now = new Date().toISOString();

@@ -34,6 +34,8 @@ run `eng sync` here). Its own settings live in the root `eng.config.yml`.
     is retried.
 - **Nobody bypasses anything**, Matt included: no `--admin`, no `--no-verify`, no ruleset edits around a red or missing
   check. Authors never post their own verdict. Commits carry `Agent:` and `Agent-Family:` trailers.
-- **Stop one PR:** `gh pr merge <n> --disable-auto`. **Stop all:** `gh workflow disable ci.yml`.
+- **Auto-merge stays armed.** GitHub turns auto-merge off when the required check fails. `eng merge watch` re-arms it once
+  the gate passes.
+- **Stop one PR:** add the `hold` label (watch disarms auto-merge and leaves it off). **Stop all:** `gh workflow disable ci.yml`.
 
 Details and the GitHub settings (`eng merge settings`): [docs/merge-queue.md](docs/merge-queue.md).
