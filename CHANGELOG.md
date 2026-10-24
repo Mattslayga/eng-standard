@@ -11,7 +11,7 @@ Scratch and disk hygiene, from Warden's audit (Oct 2026): a motus proof script's
 - **Containers.** `eng clean --containers [--apply]` removes this repo's labelled containers with their volumes, and its labelled volumes.
 - **Evidence per PR.** e2e evidence goes to `<evidence_dir>/pr-<n>/<sha>/`. `eng clean --evidence [--apply]` deletes merged or closed PRs' dirs and reports the rest.
 - **Built-in disk rules in `eng lint`** (`hygiene.disk_lint`, on by default; each bites its fixture): `script-bare-tmpdir`, `cargo-target-tmp`, `deno-dir-unstable`, `container-no-rm`, `volume-prune-all` (bans `docker volume prune -a`), `credential-to-disk`. Upgrading repos may see new findings: fix them or baseline them (`eng renovate baseline --kind lint`).
-- **`eng doctor`** (gate `doctor`) fails a config that skips the scratch root, the cache for each toolchain the repo uses, the Vite `cacheDir` (a Vite repo with no `vite.config` fails too: Vite reads no cache env var), the container label, `hygiene.evidence: per_pr` or the disk rules, and lists disk-rule findings.
+- **`eng doctor`** (gate `doctor`) fails a config that skips the scratch root, the cache for each toolchain the repo uses, the Vite `cacheDir` (each package that declares Vite needs its own `vite.config` in its directory: Vite reads no cache env var), the container label, `hygiene.evidence: per_pr` or the disk rules, and lists disk-rule findings.
 - SHIPPING.md §5 and the AGENTS.md block describe the rules. The test suite keeps eng's scratch and caches inside each run (`XDG_CACHE_HOME`).
 
 ## 0.9.0 (23 Oct 2026)
