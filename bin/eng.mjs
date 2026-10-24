@@ -14,8 +14,8 @@ import { engTmp, staleTmpDirs, parseWorktrees, classifyWorktree, TMP_RULE, tmpBa
 import { audit, corePayloads, minVersion, cmp, sydneyMonth } from '../lib/stack-audit.mjs';
 import { validateRenovation, compareBaseline, lintFindings, baselinePath, PROVIDERS } from '../lib/renovate.mjs';
 import { renovate, launch } from '../lib/renovate-cli.mjs';
-import { merge, postVerdict } from '../lib/merge-cli.mjs';
-import { validateQueue } from '../lib/merge-queue.mjs';
+import { merge, postVerdict, mergeDoctor } from '../lib/merge-cli.mjs';
+import { validateAuto } from '../lib/merge-queue.mjs';
 
 const PKG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = process.cwd();
@@ -53,7 +53,7 @@ function configErrors(c) {
   errs.push(...validatePolicy(c.e2e));
   errs.push(...validateFlake(c.e2e));
   errs.push(...validateRenovation(c.renovation));
-  errs.push(...validateQueue(c.merge));
+  errs.push(...validateAuto(c.merge));
   return errs;
 }
 
@@ -947,7 +947,7 @@ function gate() {
 // ---------- doctor: the config declares every disk-hygiene piece the repo needs, and the built-in disk rules find nothing new ----------
 function doctor() {
   const cfg = loadConfig(), files = sh('git ls-files --cached --others --exclude-standard').split('\n').filter(Boolean);
-  const checks = doctorConfig(cfg, files, readOr);
+  const checks = [...doctorConfig(cfg, files, readOr), ...mergeDoctor(cfg)];
   for (const c of checks) console.log(`  ${c.ok ? 'ok  ' : 'FAIL'} ${c.what}${c.ok ? '' : `  (fix: ${c.fix})`}`);
   let hits = lintHits({ ...cfg, hygiene: { ...cfg.hygiene, disk_lint: true, tmp_lint: true }, constraints: undefined, flags: undefined, db: undefined }).filter(h => DISK_RULE_IDS.includes(h.rule) || h.rule === TMP_RULE.id);
   const bl = readOr(baselinePath('lint'));

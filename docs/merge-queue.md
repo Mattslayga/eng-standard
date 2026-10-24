@@ -1,33 +1,45 @@
-# eng-standard merge queue (v0.10.0)
+# eng-standard merge rule (v0.10.0)
 
-Matt decided the rule on 24 Oct 2026 at 10:31 AM AEDT. Summary in [AGENTS.md](../AGENTS.md). It replaces the v0.8.0 self-merge (risk labels, a hold window, human merges for risk:high).
+Matt decided the rule on 24 Oct 2026 at 10:31 AM AEDT, then option 2 at 11:22 AM AEDT. Summary in [AGENTS.md](../AGENTS.md). It replaces the v0.8.0 self-merge (risk labels, a hold window, human merges for risk:high).
+
+## Modes
+
+| | `strict` (default) | `queue` (optional speed-up) |
+|---|---|---|
+| Where | any repo | org-owned public repos, or private on Enterprise Cloud (user-owned repos get HTTP 422) |
+| Branch protection | required check `test`, strict (up to date with main), squash only, no bypass | required check `test`, merge queue of one, squash only, no bypass |
+| Verdict binds | the exact PR head commit | the patch-id of the queued merge_group commit (`head^..head`) |
+| After main moves | `eng merge watch` updates the branch (auto-merge on), then the new head needs a new verdict | the queue rebuilds; the verdict carries while the patch-id is unchanged |
+| Who merges | GitHub auto-merge | the merge queue |
+
+`eng doctor` reads the live repo (owner type, visibility, rulesets, auto-merge) and fails if the declared `merge.auto.mode` is not the one the repo runs. `eng merge settings` prints the ruleset for the declared mode and never applies it.
 
 ## Pieces
 
 | Piece | Where | What it does |
 |---|---|---|
-| Config | `eng.config.yml` → `merge.queue` | The one config: required check, second-provider paths, post-merge check, stuck and verdict-wait minutes, restart webhook secret name |
-| Required check | `.github/workflows/ci.yml`, job `test` | `npm ci`, `npm test`, then `eng merge gate` from main's code and main's config, on `pull_request` and `merge_group` |
-| Gate | `eng merge gate` → `lib/merge-cli.mjs` → `lib/merge-queue.mjs` | On merge_group it computes the patch-id of the queued squash commit (`head^..head`) and its paths, then reads verdict comments and commit trailers from the PR. It passes when the latest independent verdict for that patch-id is a PASS, plus a second-provider PASS for gate, auth and billing paths. An `auto-revert` PR passes when it is the exact inverse of the commit it names |
-| Verdict | `eng verdict PASS\|PASS+NOTES\|FAIL ... --pr <n>` | A git note, a PR comment (`<!-- eng-verdict/v1 -->` + JSON with the patch-id), the `verdict` commit status, then a re-run of the required check on that head |
-| Post-merge | `.github/workflows/merge-post.yml` → `eng merge post` | `scripts/shipped-artifact-check.sh` on main. On failure it opens `auto-revert/<sha>`, labels it, turns on auto-merge and dispatches `ci.yml` on it (a PR opened with `GITHUB_TOKEN` starts no workflows). It never reverts a revert; it escalates instead |
-| Watch | `.github/workflows/merge-watch.yml` → `eng merge watch` | Every 10 min: labels a PR `stuck` when its required check is red or missing with no activity for `stuck_minutes`. Restarts the owner on a FAIL, or when no verdict arrived `verdict_wait_minutes` after the head was pushed, once per cause |
-
-## Patch-id binding
-
-`eng verdict` binds `git diff merge-base(main, HEAD)..HEAD | git patch-id --stable`. The queue builds each entry as one squash commit on top of main, so `git diff head^ head` on merge_group has the same patch-id, unless main changed lines next to the patch. In that case the patch-id changes and the PR needs a new verdict. The queue builds one PR per group (`max_entries_to_merge: 1`), so the bound patch is exactly the one that merges.
+| Config | `eng.config.yml` → `merge.auto` | Mode, the one required check, second-provider paths, post-merge check, stuck and verdict-wait minutes, restart webhook secret, verifier logins |
+| Required check | `.github/workflows/ci.yml`, job `test` | `npm ci`, `npm test`, then `eng merge gate` from main's code and main's config, on `pull_request`, `merge_group` and `workflow_dispatch` (input `pr`) |
+| Gate | `eng merge gate` → `lib/merge-cli.mjs` → `lib/merge-queue.mjs` | Passes when the latest independent verdict for the bound head or patch-id is a PASS. Gate, auth and billing paths also need PASSes from two providers other than the authors'. An `auto-revert` PR passes only when all hold: opened by `github-actions[bot]`, on `auto-revert/<sha12>`, its target is on main, and it is the exact inverse |
+| Verdict | `eng verdict PASS\|PASS+NOTES\|FAIL ... --pr <n>` | A git note, a PR comment (`<!-- eng-verdict/v1 -->` + JSON), the `verdict` commit status, then a re-run of the required check on that head |
+| Verifier identity | `merge.auto.verifier_logins` | When set, only comments written by a listed GitHub login count, and their provider is the login's. When unset, the claims are self-declared, because every agent on the devbox posts as one GitHub identity. `eng doctor` fails the check until it is set |
+| Post-merge | `merge-post.yml` → `eng merge post` | `scripts/shipped-artifact-check.sh` on main. On failure it opens `auto-revert/<sha12>`, labels it, turns on auto-merge and dispatches `ci.yml` with `pr`. It never reverts a revert; it escalates instead |
+| Watch | `merge-watch.yml` → `eng merge watch` | Every 10 min: `stuck` label; owner restart; update-branch for a behind auto-merge PR in strict mode |
 
 ## GitHub settings (an admin applies them; `eng merge settings` prints them)
 
-Blocker: GitHub rejects the `merge_queue` rule on user-owned repositories (HTTP 422, checked 24 Oct 2026 on the user-owned `Mattslayga/eng-sandbox`). `Mattslayga/eng-standard` is user-owned. The merge queue needs the repo in an organization: public org repos have it, and private org repos need Enterprise Cloud. Matt is an admin of `Slaytek-Systems`. Moving the repo there is Matt's decision.
+`Slaytek-Systems/eng-standard` (moved from `Mattslayga/eng-standard` on 24 Oct 2026; GitHub redirects the old URL) is an org-owned public repo, so both modes are available. It runs `strict`.
 
-After the repo is in an org:
-
-1. `gh api -X PATCH repos/<org>/eng-standard -F allow_auto_merge=true -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F delete_branch_on_merge=true`
-2. Replace ruleset `main: test + verdict` with the one `eng merge settings` prints: no bypass actors, squash only, required check `test` only (the gate reads the verdict itself), and a merge queue of one.
+1. `gh api -X PATCH repos/Slaytek-Systems/eng-standard -F allow_auto_merge=true -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false -F delete_branch_on_merge=true`
+2. Replace ruleset `main: test + verdict` with the one `eng merge settings` prints: strict, required check `test` only (the gate reads the verdict itself), squash only, no bypass actors.
 3. Repo secret `ENG_RESTART_WEBHOOK`: the URL that restarts an owning job. Without it, `eng merge watch` only comments.
-4. `gh label create stuck` and `gh label create auto-revert`. `eng merge post` creates `auto-revert` if it is missing.
+4. Give each verifier provider its own GitHub identity (a bot account or GitHub App), and list it in `merge.auto.verifier_logins`.
 
 ## This PR is the bootstrap
 
-`origin/main` has no `eng merge gate` until this PR merges, so this PR's `test` job runs its own gate (the workflow says BOOTSTRAP). It still needs the old ruleset's `test` and `verdict` and is the last PR merged by hand under the v0.8.0 rule.
+`origin/main` has no `eng merge gate` until this PR merges, so this PR's `test` job runs its own gate (the workflow says BOOTSTRAP). It needs the old ruleset's `test` and `verdict`, and it is the last PR merged by hand under the v0.8.0 rule.
+
+## Proof
+
+- Unit and CLI tests: `test/merge-queue.test.mjs`.
+- Strict mode end to end on `Mattslayga/eng-sandbox` (user-owned, private) and queue mode end to end on `Slaytek-Systems/eng-sandbox-queue` (org, public): `docs/evidence/2026-10-24-merge-rule-sandboxes.md`.

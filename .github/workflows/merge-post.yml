@@ -1,4 +1,4 @@
-# Post-merge check on the shipped artifact after every merge to main (merge.queue.post_merge.check). On failure it opens
+# Post-merge check on the shipped artifact after every merge to main (merge.auto.post_merge.check). On failure it opens
 # an auto-revert PR (the exact inverse of the merged commit) with auto-merge on; the merge gate passes an exact inverse.
 name: merge-post
 on:

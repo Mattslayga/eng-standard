@@ -4,14 +4,22 @@ Versions follow the commit titles on `main` (`vX.Y.Z: ...`). Minor = new command
 
 ## 0.10.0 (24 Oct 2026)
 
-**Merge rule v0.10.0** (decided by Matt, 24 Oct 2026, 10:31 AM AEDT). No PR needs a human merge, gate changes included. It replaces the v0.8.0 self-merge.
+**Merge rule v0.10.0** (Matt, 24 Oct 2026: the rule at 10:31 AM AEDT, option 2 at 11:22 AM AEDT). No PR needs a human merge, gate changes included. It replaces the v0.8.0 self-merge.
 
-- **One config, one required check.** `merge.queue` in `eng.config.yml`. The one required check is the `test` job in `ci.yml`: `npm test`, then `eng merge gate` on `pull_request` and `merge_group`, run from main's code and main's config.
-- **`eng merge gate`.** It passes only when the latest independent verdict for the exact patch-id being merged (the queued squash commit on merge_group) is a PASS. Gate, auth and billing paths (`merge.queue.second_provider_paths`) also need a PASS from a second verifier on a different provider. An `auto-revert` PR passes when it is the exact inverse of the commit it names.
-- **`eng verdict ... --pr <n>`** also posts the verdict as a PR comment (`<!-- eng-verdict/v1 -->` + JSON), so it survives a lost thread and CI can read it on merge_group. It then re-runs the required check on that head.
-- **`eng merge post`** (`merge-post.yml`, every push to main) runs `scripts/shipped-artifact-check.sh`: the tests, plus the npm-packed artifact installed into a clean project. On failure it opens an auto-revert PR with auto-merge on.
-- **`eng merge watch`** (`merge-watch.yml`, every 10 min): a red or missing required check with no activity for 30 minutes gets the `stuck` label. A FAIL, or no verdict 30 minutes after a push, restarts the owning job: a POST to the `ENG_RESTART_WEBHOOK` secret plus a comment, once per cause.
-- **`eng merge settings`** prints the admin change: auto-merge, a squash-only ruleset with the one required check, and a merge queue of one. It never applies anything. GitHub rejects the merge queue on user-owned repos, so `Mattslayga/eng-standard` must move to an organization first (Matt's decision; see `docs/merge-queue.md`).
+- **One config, one required check.** `merge.auto` in `eng.config.yml`. The one required check is the `test` job in `ci.yml`: `npm test`, then `eng merge gate`, run from main's code and main's config.
+- **Mode `strict` (default).** Branch protection requires up-to-date branches. The gate needs an independent PASS for the exact head commit, and GitHub auto-merge merges. **Mode `queue` (optional speed-up):** where the repo has a merge queue, the PASS binds the patch-id of the queued merge_group commit. `eng doctor` detects which mode the repo can run and fails a mismatch.
+- **Gate rules.**
+  - Gate, auth and billing paths (`merge.auto.second_provider_paths`) need PASSes from two providers other than the authors'.
+  - `merge.auto.verifier_logins` binds verdicts to verifier GitHub identities. Unset, they are self-declared, and `eng doctor` says so.
+  - An `auto-revert` PR passes only when all of these hold: opened by `github-actions[bot]`, on `auto-revert/<sha12>`, its target is on main, and it is the exact inverse.
+- **`eng verdict ... --pr <n>`** also posts the verdict as a PR comment and re-runs the required check.
+- **`eng merge post`** (`merge-post.yml`): the shipped-artifact check after each merge. A failure opens an auto-revert PR with auto-merge on and dispatches the check with the PR number.
+- **`eng merge watch`** (`merge-watch.yml`, every 10 min):
+  - A red or missing check with no activity for 30 min gets the `stuck` label.
+  - A FAIL restarts the owner at once. A missing verdict, or a missing second-provider PASS, restarts it 30 min after the push. A failed webhook delivery is retried.
+  - In strict mode it updates a behind PR that has auto-merge on.
+- **`eng merge settings`** prints the ruleset for the declared mode and never applies it.
+- **Repo moved** to `Slaytek-Systems/eng-standard` (approved by Matt, 24 Oct 2026). Tags and releases survived; v0.9.0 is still Latest.
 - **Removed:** `self-merge.yml`, `risk-label.yml`, `scripts/pr-gate.mjs`, `lib/self-merge.mjs`, `lib/risk.mjs`, `docs/self-merge.md`, `ship.high_risk` and `ship.self_merge`.
 - `npm test` is now `node --test test/*.test.mjs`, so it works on Node 20 and Node 24.
 

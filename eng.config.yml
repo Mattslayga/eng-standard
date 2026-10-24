@@ -1,4 +1,4 @@
-# eng.config.yml for eng-standard ITSELF (v0.10.0 merge rule: Matt, 24 Oct 2026, 10:31 AM AEDT).
+# eng.config.yml for eng-standard ITSELF (v0.10.0 merge rule: Matt, 24 Oct 2026, 10:31 AM AEDT; option 2 at 11:22 AM AEDT).
 # eng-standard does not render its own AGENTS.md or SHIPPING.md (do not run `eng sync` here). This file feeds `eng verdict`,
 # `eng merge gate|watch|post|settings` and the workflows. CI reads main's copy, so a PR cannot loosen its own gate.
 version: 1
@@ -11,10 +11,11 @@ project:
     test: npm test
 
 merge:                            # The merge rule (AGENTS.md). No PR needs a human merge, gate changes included. Nobody bypasses anything.
-  owner: "GitHub merge queue with auto-merge. No human merges, Matt included"
-  command: "gh pr merge <n> --auto --squash   (the author's lane turns on auto-merge; the queue merges when `test` passes on merge_group)"
+  owner: "GitHub auto-merge behind strict branch protection. No human merges, Matt included"
+  command: "gh pr merge <n> --auto --squash   (the author's lane turns on auto-merge; GitHub merges once the branch is up to date and `test` passes)"
   method: squash
-  queue:
+  auto:
+    mode: strict                  # strict: PR up to date with main, PASS bound to the exact head (default). queue: merge queue, PASS bound to the queued patch-id (optional speed-up; eng doctor says which the repo can run)
     check: test                   # the ONE required check: job `test` in .github/workflows/ci.yml = tests + eng merge gate
     workflow: ci.yml
     base: main
@@ -32,6 +33,7 @@ merge:                            # The merge rule (AGENTS.md). No PR needs a hu
       - "scripts/**"
       - "lib/merge-queue.mjs"
       - "lib/merge-cli.mjs"
+      - "lib/hygiene.mjs"         # eng doctor
       - "lib/e2e-policy.mjs"      # glob2re, which the path matcher uses
       - "lib/renovate.mjs"        # FAMILY_PROVIDER, which the provider rule uses
       - "package.json"
@@ -45,6 +47,7 @@ merge:                            # The merge rule (AGENTS.md). No PR needs a hu
     stuck_minutes: 30             # red or missing required check, no activity this long = `stuck` label
     verdict_wait_minutes: 30      # no verdict this long after the head was pushed = restart the owner
     restart_webhook_env: ENG_RESTART_WEBHOOK   # repo secret: URL that restarts the owning job; unset = comment only
+    # verifier_logins: { <github-login>: openai, <github-login>: google }   # bind verdicts to verifier identities. Unset: verdicts are self-declared (one shared GitHub identity); eng doctor flags it
 
 ship:
   verifier: fresh-context agent; family different from every author; provider recorded (eng verdict --provider ... --pr <n>)
