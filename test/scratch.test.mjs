@@ -158,10 +158,28 @@ test('eng launch -- <cmd> on a terminal: re-parented background workers stop on 
   assert.equal(fs.readFileSync(beat, 'utf8').split('\n').length, n, 'normal exit: the background worker stopped with the round');
   assert.ok(!fs.existsSync(round), 'round removed');
   let eng; ({ p, beat, round, eng } = await run('b', 'wait'));
+  assert.ok(Number.isInteger(eng) && eng > 1, `eng pid parsed from the marks file: ${eng}`); // kill(0) would signal this test's whole process group
   process.kill(eng, 'SIGTERM'); await new Promise(r => p.on('exit', r));
   n = fs.readFileSync(beat, 'utf8').split('\n').length; await new Promise(r => setTimeout(r, 600));
   assert.equal(fs.readFileSync(beat, 'utf8').split('\n').length, n, 'SIGTERM: the background worker stopped with the round');
   assert.ok(!fs.existsSync(round), 'round removed');
+});
+
+test('eng launch -- <cmd>: SIGTERM while the worktree is still being made removes the round and the worktree', async () => {
+  const hooks = path.join(marks, 'hooks'); fs.mkdirSync(hooks, { recursive: true });
+  fs.writeFileSync(path.join(hooks, 'post-checkout'), `#!/bin/sh\necho "$PWD" > ${marks}/prep\nsleep 3\n`, { mode: 0o755 });
+  git(`config core.hooksPath ${hooks}`);
+  try {
+    const p = spawn(process.execPath, [ENG, 'launch', '--ref', 'HEAD', '--', 'sh', '-c', `touch ${marks}/ran`], { cwd: dir, env });
+    const m = path.join(marks, 'prep');
+    for (let i = 0; i < 100 && !fs.existsSync(m); i++) await new Promise(r => setTimeout(r, 100));
+    const wt = fs.readFileSync(m, 'utf8').trim();
+    const code = await new Promise(r => { p.on('exit', (c, s) => r(c ?? s)); p.kill('SIGTERM'); });
+    assert.equal(code, 143);
+    assert.ok(!fs.existsSync(path.dirname(wt)), 'round dir removed');
+    assert.ok(!git('worktree list').includes(path.dirname(wt)), 'its worktree is gone from git worktree list');
+    assert.ok(!fs.existsSync(path.join(marks, 'ran')), 'the command never started');
+  } finally { git('config --unset core.hooksPath'); }
 });
 
 test('eng doctor and eng rules prove on a repo with the Warden cases', () => {
