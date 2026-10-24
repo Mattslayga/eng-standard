@@ -1,0 +1,29 @@
+# Post-merge check on the shipped artifact after every merge to main (merge.queue.post_merge.check). On failure it opens
+# an auto-revert PR (the exact inverse of the merged commit) with auto-merge on; the merge gate passes an exact inverse.
+name: merge-post
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: merge-post
+  cancel-in-progress: false
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+jobs:
+  post-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: node bin/eng.mjs merge post
+        env:
+          GH_TOKEN: ${{ github.token }}

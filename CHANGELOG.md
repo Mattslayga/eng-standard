@@ -2,6 +2,19 @@
 
 Versions follow the commit titles on `main` (`vX.Y.Z: ...`). Minor = new command, config or policy area; patch = rule or doc addition to an existing area. History before 0.7.1 is in `git log`.
 
+## 0.10.0 (24 Oct 2026)
+
+**Merge rule v0.10.0** (decided by Matt, 24 Oct 2026, 10:31 AM AEDT). No PR needs a human merge, gate changes included. It replaces the v0.8.0 self-merge.
+
+- **One config, one required check.** `merge.queue` in `eng.config.yml`. The one required check is the `test` job in `ci.yml`: `npm test`, then `eng merge gate` on `pull_request` and `merge_group`, run from main's code and main's config.
+- **`eng merge gate`.** It passes only when the latest independent verdict for the exact patch-id being merged (the queued squash commit on merge_group) is a PASS. Gate, auth and billing paths (`merge.queue.second_provider_paths`) also need a PASS from a second verifier on a different provider. An `auto-revert` PR passes when it is the exact inverse of the commit it names.
+- **`eng verdict ... --pr <n>`** also posts the verdict as a PR comment (`<!-- eng-verdict/v1 -->` + JSON), so it survives a lost thread and CI can read it on merge_group. It then re-runs the required check on that head.
+- **`eng merge post`** (`merge-post.yml`, every push to main) runs `scripts/shipped-artifact-check.sh`: the tests, plus the npm-packed artifact installed into a clean project. On failure it opens an auto-revert PR with auto-merge on.
+- **`eng merge watch`** (`merge-watch.yml`, every 10 min): a red or missing required check with no activity for 30 minutes gets the `stuck` label. A FAIL, or no verdict 30 minutes after a push, restarts the owning job: a POST to the `ENG_RESTART_WEBHOOK` secret plus a comment, once per cause.
+- **`eng merge settings`** prints the admin change: auto-merge, a squash-only ruleset with the one required check, and a merge queue of one. It never applies anything. GitHub rejects the merge queue on user-owned repos, so `Mattslayga/eng-standard` must move to an organization first (Matt's decision; see `docs/merge-queue.md`).
+- **Removed:** `self-merge.yml`, `risk-label.yml`, `scripts/pr-gate.mjs`, `lib/self-merge.mjs`, `lib/risk.mjs`, `docs/self-merge.md`, `ship.high_risk` and `ship.self_merge`.
+- `npm test` is now `node --test test/*.test.mjs`, so it works on Node 20 and Node 24.
+
 ## 0.9.0 (23 Oct 2026)
 
 - **Renovation pack** (spec v1, approved by Matt, 23 Oct 2026): `eng renovate` brings an existing repo up to the standard through normal PRs. It never merges, never edits rulesets or protection and never touches prod. Lead guide: `renovation/README.md`.

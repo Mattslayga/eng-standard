@@ -14,6 +14,8 @@ import { engTmp, staleTmpDirs, parseWorktrees, classifyWorktree, TMP_RULE, tmpBa
 import { audit, corePayloads, minVersion, cmp, sydneyMonth } from '../lib/stack-audit.mjs';
 import { validateRenovation, compareBaseline, lintFindings, baselinePath, PROVIDERS } from '../lib/renovate.mjs';
 import { renovate, launch } from '../lib/renovate-cli.mjs';
+import { merge, postVerdict } from '../lib/merge-cli.mjs';
+import { validateQueue } from '../lib/merge-queue.mjs';
 
 const PKG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = process.cwd();
@@ -51,6 +53,7 @@ function configErrors(c) {
   errs.push(...validatePolicy(c.e2e));
   errs.push(...validateFlake(c.e2e));
   errs.push(...validateRenovation(c.renovation));
+  errs.push(...validateQueue(c.merge));
   return errs;
 }
 
@@ -837,9 +840,11 @@ function verdictRecord(result) {
   sh(`git notes --ref ${VNOTES} append -m '${JSON.stringify(rec).replaceAll("'", "'\\''")}' ${H}`);
   if (result === 'FAIL') logMistake('verdict:FAIL', `FAIL by ${by} (${family})${rec.evidence ? ', evidence ' + rec.evidence : ''}`, 'verdict');
   console.log(`eng verdict: recorded ${result} by ${by} (${family}) on ${H.slice(0, 8)}, patch-id ${rec.patch_id.slice(0, 12)}`);
+  // --pr: the verdict also goes on the PR as a comment, so it survives a lost thread and the merge gate reads it on merge_group.
+  if (arg('--pr')) { postVerdict(engCtx(), arg('--pr'), rec, cfg); console.log(`eng verdict: posted the verdict comment on PR #${arg('--pr')}`); }
 }
 // eng verdict status --pr <n>: post the verdict to GitHub as commit status `verdict` on the PR's exact head SHA, so a
-// ruleset and the self-merge workflow can see it. success only when `eng verdict check` passes (an independent PASS for
+// ruleset can see it. success only when `eng verdict check` passes (an independent PASS for
 // this patch-id); failure otherwise. Local HEAD must be the PR's live head: the status binds to that SHA.
 function prHead(n) {
   const pr = JSON.parse(sh(`gh pr view ${Number(n)} --json headRefOid,state`));
@@ -969,6 +974,6 @@ const cmds = { verdict: () => a[0] === 'check' ? verdictCheck() : a[0] === 'stat
   rules: () => a[0] === 'prove' ? rulesProve() : die('usage: eng rules prove'),
   verify: () => a[0] === 'create' ? verifyCreate(a[1]) : a[0] === 'maintain' ? verifyMaintain() : die('usage: eng verify create <id> | maintain'),
   mistake: () => mistake(a[0], a.slice(1).join(' ')), retro, ship: () => a[0] === 'next' ? shipNext() : die('usage: eng ship next'), 'launch-check': launchCheck, fallow: fallowGate, 'ci-verdict': () => ciVerdict(a), 'e2e-required': e2eRequired, clean: cleanCmd,
-  renovate: () => renovate(engCtx(), a), launch: () => launch(engCtx(), a) };
-function engCtx() { return { ROOT, PKG, sh, die, arg, args: a, flag: k => a.includes(k), configErrors, shippingMd, lintHits, baseRef, head, patchId, codeAuthors, independentVerdicts }; }
-(cmds[cmd] || (() => { console.log('eng init | sync | verdict PASS|PASS+NOTES|FAIL --by <id> --family <f> [--provider <p>] [--model <m>] [--session <s>] [--evidence <p>] [--pr <n>] | verdict check | verdict status --pr <n> | drift-check | stack-check | stack-audit [<name>=<path>...] [--ref <ref>] [--standard <file>] [--json | --core [--core-space <s>] [--core-target <type>:<id>]] | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | ship next | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e [--if-required] [--flake-check [--runs N] [--results pass,fail,...]] | e2e-required [--event pr|main|nightly] [--base <ref>] [--files a,b] [--labels a,b] [--json] [--exit-code] | gate | clean [--older-than <h>] [--worktrees [--tmp]] [--no-fetch] [--apply] | renovate audit|plan|apply <step>|render [--check]|baseline [--kind k] [--reason r]|scan|wire --ci buildkite|github|ci-preflight|refresh|receipt --pr <n>|prove [--gate g] | launch [--ref <ref>] | launch down <dir>'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();
+  renovate: () => renovate(engCtx(), a), launch: () => launch(engCtx(), a), merge: () => merge(engCtx(), a) };
+function engCtx() { return { ROOT, PKG, sh, die, arg, args: a, flag: k => a.includes(k), configErrors, shippingMd, lintHits, baseRef, head, patchId, codeAuthors, independentVerdicts, loadConfig }; }
+(cmds[cmd] || (() => { console.log('eng init | sync | verdict PASS|PASS+NOTES|FAIL --by <id> --family <f> [--provider <p>] [--model <m>] [--session <s>] [--evidence <p>] [--pr <n>] | verdict check | verdict status --pr <n> | drift-check | stack-check | stack-audit [<name>=<path>...] [--ref <ref>] [--standard <file>] [--json | --core [--core-space <s>] [--core-target <type>:<id>]] | lint | rules prove | verify create <id> | verify maintain | mistake <key> <what> | retro | ship next | launch-check [--check-only] | fallow [--save-baseline] | laws | e2e [--if-required] [--flake-check [--runs N] [--results pass,fail,...]] | e2e-required [--event pr|main|nightly] [--base <ref>] [--files a,b] [--labels a,b] [--json] [--exit-code] | gate | clean [--older-than <h>] [--worktrees [--tmp]] [--no-fetch] [--apply] | renovate audit|plan|apply <step>|render [--check]|baseline [--kind k] [--reason r]|scan|wire --ci buildkite|github|ci-preflight|refresh|receipt --pr <n>|prove [--gate g] | launch [--ref <ref>] | launch down <dir> | merge gate [--pr <n>] [--config-from <ref>] | merge watch|post [--dry-run] | merge settings'); process.exit(cmd && !['--help', '-h', 'help'].includes(cmd) ? 1 : 0); }))();

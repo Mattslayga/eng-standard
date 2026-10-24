@@ -23,6 +23,8 @@ One file, `eng.config.yml`, drives everything. Agent-agnostic: plain SKILL.md fi
 | `stack.defaults.agent_activity_ui` | STACK.md default: agent or AI activity shown to users (reasoning, tool calls, subagents, queues) uses shadcn Trace (`pnpm dlx shadcn@latest add trace`), plus AI Elements / Code Block where relevant, not custom UI. Docs: https://ui.shadcn.com/docs/components/trace |
 | `eng renovate audit\|plan\|apply <step>\|render\|baseline\|scan\|wire\|ci-preflight\|refresh\|receipt\|prove` | renovation pack for existing repos: audit against the standard, seven fixed adoption steps as normal PRs, baselines, CI preflight, receipt drafts, proof ledger. Never merges or edits rulesets. See `renovation/README.md` |
 | `eng launch [--ref r]` / `eng launch down <dir>` | private 0700 worktree + tmp under `$TMPDIR`; never chmods an existing checkout |
+| `eng merge gate\|watch\|post\|settings` | merge rule v0.10.0 (`merge.queue`): the one required check's gate (independent PASS for the exact patch-id; a second-provider PASS for gate, auth and billing paths), stuck flags and owner restarts, post-merge check with auto-revert, and the admin settings it needs (printed, never applied). See `docs/merge-queue.md` |
+| `eng verdict ... --pr <n>` | also posts the verdict as a PR comment (patch-id bound) and re-runs the required check |
 | `npm test` | this package's own tests (`node --test`) |
 
 Vendored upstream skills (verbatim, path-rewritten `.cursor/skills/` → `.agents/skills/`): see `vendor/PINS.txt`. Licenses: MIT (vendor/*/LICENSE).

@@ -1,6 +1,6 @@
-# eng.config.yml for eng-standard ITSELF (v0.8.0; Design A approved by Matt, 19 Oct 2026, 3:55 PM AEDT).
-# eng-standard does not render its own AGENTS.md or SHIPPING.md (do not run `eng sync` here). This file feeds only
-# `eng verdict`, scripts/pr-gate.mjs (risk labels and self-merge) and the workflows. Changing it is risk:high.
+# eng.config.yml for eng-standard ITSELF (v0.10.0 merge rule: Matt, 24 Oct 2026, 10:31 AM AEDT).
+# eng-standard does not render its own AGENTS.md or SHIPPING.md (do not run `eng sync` here). This file feeds `eng verdict`,
+# `eng merge gate|watch|post|settings` and the workflows. CI reads main's copy, so a PR cannot loosen its own gate.
 version: 1
 
 project:
@@ -10,42 +10,44 @@ project:
   commands:
     test: npm test
 
-merge:                            # The merge rule (AGENTS.md "Merge rule"). Nobody bypasses anything, Matt included.
-  owner: "risk:low: .github/workflows/self-merge.yml. risk:high: Matt, by hand"
-  command: "self-merge: PUT pulls/<n>/merge {merge_method: squash, sha: <head>}. Matt: gh pr merge <n> --squash --delete-branch --match-head-commit <sha>"
+merge:                            # The merge rule (AGENTS.md). No PR needs a human merge, gate changes included. Nobody bypasses anything.
+  owner: "GitHub merge queue with auto-merge. No human merges, Matt included"
+  command: "gh pr merge <n> --auto --squash   (the author's lane turns on auto-merge; the queue merges when `test` passes on merge_group)"
   method: squash
-
-ship:
-  verifier: fresh-context agent from a different model family than every author (eng verdict ... --pr <n>)
-  high_risk:                      # Any changed path here (or a rename's old path) = risk:high: Matt merges. Else risk:low.
-    label: risk:high
-    low_label: risk:low
-    reasons: [CI, merge setup, executable CLI, package scripts and dependencies, vendored third-party code]
-    paths:
-      - ".github/**"              # workflows (CI, risk-label, self-merge), CODEOWNERS, actions
+  queue:
+    check: test                   # the ONE required check: job `test` in .github/workflows/ci.yml = tests + eng merge gate
+    workflow: ci.yml
+    base: main
+    # A PR touching these also needs a second PASS from a verifier on a different provider (gate, auth, billing).
+    second_provider_paths:
+      - ".github/**"              # workflows (ci, merge-post, merge-watch), CODEOWNERS, actions
       - ".buildkite/**"
       - ".eng/ci/**"
       - ".githooks/**"
-      - "eng.config.yml"          # this file: the high-risk list, hold window and merge rule
-      - "AGENTS.md"               # the merge rule
+      - "eng.config.yml"          # this file: the rule itself
+      - "AGENTS.md"
       - "CLAUDE.md"
-      - "docs/self-merge.md"      # checker command, undo, settings
-      - "bin/**"                  # the eng CLI: verdict, gate and ship logic every repo's merges rely on
-      - "scripts/**"              # pr-gate.mjs: labeller and self-merge
-      - "lib/risk.mjs"
-      - "lib/self-merge.mjs"
-      - "lib/e2e-policy.mjs"      # glob2re, which the risk matcher uses
-      - "package.json"            # scripts, deps, bin (see version_only)
+      - "docs/merge-queue.md"
+      - "bin/**"                  # the eng CLI: verdict, gate and merge logic every repo relies on
+      - "scripts/**"
+      - "lib/merge-queue.mjs"
+      - "lib/merge-cli.mjs"
+      - "lib/e2e-policy.mjs"      # glob2re, which the path matcher uses
+      - "lib/renovate.mjs"        # FAMILY_PROVIDER, which the provider rule uses
+      - "package.json"
       - "package-lock.json"
       - "**/.npmrc"
-      - "vendor/**"               # third-party skills and kit code at pinned versions
-    version_only: [package.json, package-lock.json]   # risk:low when the version field is the only change
-  self_merge:                     # .github/workflows/self-merge.yml, every 30 min + workflow_dispatch
-    base: main
-    hold_label: hold              # Matt (or anyone) adds it to stop a PR; remove it to let it go
-    hold_minutes: 120             # both checks green on the head SHA this long before the merge (Matt's window)
-    check: test                   # GitHub Actions check run (.github/workflows/ci.yml)
-    status: verdict               # commit status the independent checker posts (eng verdict ... --pr <n>)
+      - "vendor/**"
+      - "**/auth/**"
+      - "**/billing/**"
+      - "**/payments/**"
+    post_merge: { check: "bash scripts/shipped-artifact-check.sh" }   # tests on merged main + the npm-packed artifact; red = auto-revert PR
+    stuck_minutes: 30             # red or missing required check, no activity this long = `stuck` label
+    verdict_wait_minutes: 30      # no verdict this long after the head was pushed = restart the owner
+    restart_webhook_env: ENG_RESTART_WEBHOOK   # repo secret: URL that restarts the owning job; unset = comment only
+
+ship:
+  verifier: fresh-context agent; family different from every author; provider recorded (eng verdict --provider ... --pr <n>)
 
 gates:
   skipped_is_failed: true
