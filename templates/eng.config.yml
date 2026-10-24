@@ -110,8 +110,7 @@ launch:                           # The repo owns its isolated local launch (pst
     run_id: ENG_RUN_ID
     kill: own_pids_only           # never pkill/killall by name
     evidence: outside_repo        # ENG_RUN_DIR/evidence survives down
-  worktree: private               # eng launch: a fresh worktree in a 0700 dir under $TMPDIR; never chmod a shared checkout
-  tmp: $TMPDIR                    # base for that dir (os.tmpdir(); never a hard-coded /tmp)
+  worktree: private               # eng launch -- <cmd>: a fresh worktree in a 0700 round dir under hygiene.scratch_root, removed on exit; never chmod a shared checkout
   mode: "0700"
   base: main                      # ref eng launch checks out (origin/<base> when fetched)
 
@@ -174,6 +173,15 @@ e2e:
 hygiene:                          # Disk hygiene (SHIPPING.md §5). eng gate / eng e2e always run with a per-run $ENG_TMP removed on exit.
   tmp_lint: true                  # eng lint rule test-bare-tmpdir: test code may not write to bare os.tmpdir() or /tmp. false = off (say why).
   tmp_max_age_hours: 6            # eng clean: eng-<repo>-* temp dirs older than this (and whose process is gone) are stale.
+  disk_lint: true                 # eng lint built-in disk rules: script-bare-tmpdir, cargo-target-tmp, deno-dir-unstable, container-no-rm, volume-prune-all, credential-to-disk.
+  scratch_root: "${XDG_CACHE_HOME}/eng/${repo}/scratch"   # repo-owned root, never /tmp. eng launch/verdict round/gate/e2e make one 0700 round dir here per run and remove it on exit.
+  caches:                         # one shared build cache per toolchain per repo; eng exports the env var to every child (eng doctor requires each toolchain the repo uses).
+    cargo_target: "${XDG_CACHE_HOME}/eng/${repo}/cargo-target"   # CARGO_TARGET_DIR (+ CARGO_INCREMENTAL=0)
+    vite: "${XDG_CACHE_HOME}/eng/${repo}/vite"                   # ENG_VITE_CACHE_DIR; vite.config: cacheDir: process.env.ENG_VITE_CACHE_DIR ?? 'node_modules/.vite'
+    bun: "${XDG_CACHE_HOME}/eng/${repo}/bun"                     # BUN_INSTALL_CACHE_DIR
+    deno: "${XDG_CACHE_HOME}/eng/${repo}/deno"                   # DENO_DIR (stable, never per run)
+  containers: { label: eng.repo } # run --rm, or --label "$ENG_CONTAINER_LABEL" (eng.repo=<repo>); eng clean --containers --apply removes them with their volumes. Never docker volume prune -a.
+  evidence: per_pr                # <e2e.evidence_dir>/pr-<n>/<sha>/; eng clean --evidence --apply clears merged or closed PRs.
   # Clean up on merge or close (SHIPPING.md rule 18, §5): delete the PR's worktrees and evidence; one worktree per PR; no installs in review-only worktrees; shared package store and build cache; media off the box.
 
 flags:

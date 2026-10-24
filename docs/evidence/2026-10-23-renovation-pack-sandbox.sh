@@ -27,7 +27,7 @@ SHARED_MODE=$(mode "$SANDBOX"); echo "   mode $SHARED_MODE; origin: $(git -C "$S
 
 step "1. isolated launch (spec §7)"
 cd "$SANDBOX" || exit 2
-L=$(eng launch --ref "$REF" 2>&1); echo "$L" | sed 's/^/   /'
+L=$(eng launch --keep --ref "$REF" 2>&1); echo "$L" | sed 's/^/   /'
 WT=$(echo "$L" | sed -n 's/^  worktree \(\S*\) .*/\1/p'); DIR=$(dirname "$WT")
 check "launch dir, worktree and tmp are 0700" '[ "$(mode "$DIR")$(mode "$WT")$(mode "$DIR/tmp")" = 700700700 ]'
 check "shared checkout still mode $SHARED_MODE" '[ "$(mode "$SANDBOX")" = "$SHARED_MODE" ]'

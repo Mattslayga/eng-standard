@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import YAML from 'yaml';
 import { decide, classify, resolvePolicy, validatePolicy, glob2re } from '../lib/e2e-policy.mjs';
+import os from 'node:os';
+import path from 'node:path';
+// eng's scratch root and shared caches live under XDG_CACHE_HOME: keep them inside this run, never in the real ~/.cache.
+process.env.XDG_CACHE_HOME = fs.mkdtempSync(path.join(process.env.ENG_TMP ?? os.tmpdir(), 'eng-xdg-'));
+process.on('exit', () => fs.rmSync(process.env.XDG_CACHE_HOME, { recursive: true, force: true }));
 
 const tpl = YAML.parse(fs.readFileSync(new URL('../templates/eng.config.yml', import.meta.url), 'utf8')).e2e;
 const pr = (files, labels = []) => decide(tpl, { files, labels, event: 'pr' });
