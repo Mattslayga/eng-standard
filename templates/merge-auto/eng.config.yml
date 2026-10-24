@@ -34,19 +34,17 @@ merge:                            # The merge rule (AGENTS.md). No PR needs a hu
       - "docs/merge-queue.md"
       - "bin/**"                  # the eng CLI: verdict, gate and merge logic every repo relies on
       - "scripts/**"
-      - "lib/merge-queue.mjs"
-      - "lib/merge-cli.mjs"
-      - "lib/self-merge.mjs"      # verdict comments, trust policy, authorship and FAMILY_PROVIDER, which the gate uses
-      - "lib/hygiene.mjs"         # eng doctor
-      - "lib/e2e-policy.mjs"      # glob2re, which the path matcher uses
-      - "lib/renovate.mjs"        # re-exports FAMILY_PROVIDER
+      - "lib/**"                  # everything bin/eng.mjs loads when the trusted gate, watch and post run it
       - "package.json"
       - "package-lock.json"
       - "**/.npmrc"
       - "vendor/**"
       - "**/auth/**"
+      - "**/auth.*"
       - "**/billing/**"
+      - "**/billing.*"
       - "**/payments/**"
+      - "**/payments.*"
     post_merge: { check: "bash scripts/shipped-artifact-check.sh" }   # tests on merged main + the npm-packed artifact; red = auto-revert PR
     stuck_minutes: 30             # red or missing required check, no activity this long = `stuck` label
     verdict_wait_minutes: 30      # no verdict this long after the head was pushed = restart the owner

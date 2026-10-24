@@ -209,18 +209,36 @@ test('eng merge gate, queue (merge_group): binds the queued patch-id; gate files
   setMode('strict');
 });
 
-test('every local module the gate imports is a second-provider path, in the template and in eng-standard (openai r7 P1)', () => {
-  const lib = path.resolve(new URL('../lib', import.meta.url).pathname), seen = new Set(), todo = ['merge-cli.mjs'];
+// Every file a trusted workflow runs with `node <file>`, and everything it imports, statically or by re-export, multi-line included.
+const REPO = path.resolve(new URL('..', import.meta.url).pathname);
+function runClosure(workflows) {
+  const seen = new Set(), todo = workflows.flatMap(w => [...fs.readFileSync(w, 'utf8').matchAll(/\bnode ((?:bin|lib|scripts)\/[\w./-]+\.mjs)/g)].map(m => m[1]));
   while (todo.length) {
     const f = todo.pop(); if (seen.has(f)) continue; seen.add(f);
-    for (const [, dep] of fs.readFileSync(path.join(lib, f), 'utf8').matchAll(/^import .* from '\.\/([^']+)';$/gm)) todo.push(dep);
+    const src = fs.readFileSync(path.join(REPO, f), 'utf8');
+    for (const [, dep] of src.matchAll(/(?:^|\n)\s*(?:import|export)\b[^;]*?\bfrom\s*'(\.{1,2}\/[^']+)'|\bimport\(\s*'(\.{1,2}\/[^']+)'\s*\)/g)) if (dep) todo.push(path.relative(REPO, path.resolve(REPO, path.dirname(f), dep)));
   }
-  assert.ok(seen.has('self-merge.mjs'), 'the gate takes its verdict rules from lib/self-merge.mjs');
-  const root = YAML.parse(fs.readFileSync(path.resolve(new URL('../eng.config.yml', import.meta.url).pathname), 'utf8')).ship.high_risk.paths;
-  for (const f of [...seen].map(x => `lib/${x}`)) {
-    assert.equal(gateDecision({ bind: head(), files: [f], verdicts: [V()], authors, q }).need, 'second-provider', `${f}: one provider must not be enough`);
-    assert.ok(root.some(g => glob2re(g).test(f)), `${f} is in eng-standard's ship.high_risk.paths`);
-  }
+  return [...seen];
+}
+const wf = dir => fs.readdirSync(path.join(REPO, dir)).filter(f => f.endsWith('.yml')).map(f => path.join(REPO, dir, f));
+
+test('every file the reference gate workflows run or import needs a second provider (openai r7 and r8 P1s)', () => {
+  const files = runClosure(wf('templates/merge-auto'));
+  for (const f of ['bin/eng.mjs', 'lib/merge-cli.mjs', 'lib/merge-queue.mjs', 'lib/self-merge.mjs', 'lib/renovate-cli.mjs', 'lib/render.mjs', 'lib/flake.mjs', 'lib/stack-audit.mjs']) assert.ok(files.includes(f), `${f} is in the gate's run closure`);
+  for (const f of files) assert.equal(gateDecision({ bind: head(), files: [f], verdicts: [V()], authors, q }).need, 'second-provider', `${f}: one provider must not be enough`);
+});
+
+test('flat and nested auth, billing and payments paths need a second provider (openai r8 P1)', () => {
+  for (const f of ['src/auth.ts', 'src/auth.mjs', 'src/auth/login.ts', 'app/billing.ts', 'app/billing/plan.ts', 'payments.ts', 'svc/payments/charge.ts'])
+    assert.equal(gateDecision({ bind: head(), files: [f], verdicts: [V()], authors, q }).need, 'second-provider', f);
+  assert.equal(gateDecision({ bind: head(), files: ['src/author.ts'], verdicts: [V()], authors, q }).pass, true, 'a name that only starts with auth is not an auth path');
+});
+
+test('every file eng-standard\'s trusted controller workflows run or import is risk:high', () => {
+  const trustedWf = wf('.github/workflows').filter(w => /ref: main/.test(fs.readFileSync(w, 'utf8')));
+  const files = runClosure(trustedWf), root = YAML.parse(fs.readFileSync(path.join(REPO, 'eng.config.yml'), 'utf8')).ship.high_risk.paths;
+  for (const f of ['scripts/pr-gate.mjs', 'lib/self-merge.mjs', 'lib/risk.mjs', 'lib/e2e-policy.mjs']) assert.ok(files.includes(f), `${f} is in the controller's run closure`);
+  for (const f of files) assert.ok(root.some(g => glob2re(g).test(f)), `${f} is in ship.high_risk.paths`);
 });
 
 test('eng merge gate counts verdicts like self-merge (PR #21): outsiders, prototype families and edits', () => {
