@@ -13,6 +13,7 @@ import { glob2re, decide, validatePolicy } from '../lib/e2e-policy.mjs';
 import { engTmp, staleTmpDirs, parseWorktrees, classifyWorktree, TMP_RULE, tmpBase, slug, openRound, DISK_RULES, DISK_RULE_IDS, doctorConfig, evidenceKey, classifyEvidence } from '../lib/hygiene.mjs';
 import { audit, corePayloads, minVersion, cmp, sydneyMonth } from '../lib/stack-audit.mjs';
 import { validateRenovation, compareBaseline, lintFindings, baselinePath, PROVIDERS } from '../lib/renovate.mjs';
+import { verdictBody } from '../lib/self-merge.mjs';
 import { renovate, launch } from '../lib/renovate-cli.mjs';
 
 const PKG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -851,6 +852,11 @@ function verdictRecord(result) {
   sh(`git notes --ref ${VNOTES} append -m '${JSON.stringify(rec).replaceAll("'", "'\\''")}' ${H}`);
   if (result === 'FAIL') logMistake('verdict:FAIL', `FAIL by ${by} (${family})${rec.evidence ? ', evidence ' + rec.evidence : ''}`, 'verdict');
   console.log(`eng verdict: recorded ${result} by ${by} (${family}) on ${H.slice(0, 8)}, patch-id ${rec.patch_id.slice(0, 12)}`);
+  // --pr: the record (head SHA and provider included) also goes on the PR as an eng-verdict/v1 comment; self-merge reads those.
+  if (!arg('--pr')) return;
+  const c = spawnSync('gh', ['api', `repos/{owner}/{repo}/issues/${Number(arg('--pr'))}/comments`, '-f', `body=${verdictBody(rec)}`], { cwd: ROOT, encoding: 'utf8' });
+  if (c.status !== 0) die(`verdict: could not post the verdict comment: ${(c.stderr || c.stdout).trim()}`);
+  console.log(`eng verdict: posted the verdict comment on PR #${arg('--pr')}`);
 }
 // eng verdict status --pr <n>: post the verdict to GitHub as commit status `verdict` on the PR's exact head SHA, so a
 // ruleset and the self-merge workflow can see it. success only when `eng verdict check` passes (an independent PASS for

@@ -2,7 +2,7 @@
 
 Versions follow the commit titles on `main` (`vX.Y.Z: ...`). Minor = new command, config or policy area; patch = rule or doc addition to an existing area. History before 0.7.1 is in `git log`.
 
-## 0.9.1 (24 Oct 2026)
+## 0.9.2 (24 Oct 2026)
 
 Scratch and disk hygiene, from Warden's audit (Oct 2026): a motus proof script's mkdtemp in /tmp, Core Edge Rust targets in /tmp, equitus Deno caches per run, Docker anonymous volumes.
 
@@ -13,6 +13,17 @@ Scratch and disk hygiene, from Warden's audit (Oct 2026): a motus proof script's
 - **Built-in disk rules in `eng lint`** (`hygiene.disk_lint`, on by default; each bites its fixture): `script-bare-tmpdir`, `cargo-target-tmp`, `deno-dir-unstable`, `container-no-rm`, `volume-prune-all` (bans `docker volume prune -a`), `credential-to-disk`. Upgrading repos may see new findings: fix them or baseline them (`eng renovate baseline --kind lint`).
 - **`eng doctor`** (gate `doctor`) fails a config that skips the scratch root, the cache for each toolchain the repo uses, the Vite `cacheDir` (each package that declares Vite needs its own `vite.config` in its directory: Vite reads no cache env var), the container label, `hygiene.evidence: per_pr` or the disk rules, and lists disk-rule findings.
 - SHIPPING.md §5 and the AGENTS.md block describe the rules. The test suite keeps eng's scratch and caches inside each run (`XDG_CACHE_HOME`).
+
+## 0.9.1 (24 Oct 2026)
+
+- **Two-provider self-merge** (Option A, approved by Matt, 24 Oct 2026, 3:03 PM AEDT) for eng-standard's own `self-merge.yml`:
+  - risk:low merges after one independent PASS on the exact head. risk:high (including auth and billing paths, now in `ship.high_risk.paths`) merges after PASSes from two verifiers on two different providers, neither the authors'. Before this, risk:high waited for Matt.
+  - The head must contain main's tip. A missing, stale or FAIL verdict refuses; each verifier's latest verdict counts and any FAIL blocks. Hold, draft and the hold window are kept; the window also counts from the latest counted verdict.
+  - A red post-merge `test` on main opens the tip's exact inverse as an `auto-revert/<sha12>` PR from `github-actions[bot]`. It is the only PR that may merge while main is red, and it still needs verdicts. The workflow gains `pull-requests: write`.
+  - `eng verdict ... --pr <n>` also posts an `eng-verdict/v1` PR comment (head SHA, family, provider); self-merge reads verdicts from those. Comment format, `parseVerdicts` and `authorsFrom` come from PR #20.
+  - `FAMILY_PROVIDER` moves to `lib/self-merge.mjs` (a risk:high path); `lib/renovate.mjs` re-exports it.
+  - Trust policy: only verdict comments from `OWNER`, `MEMBER` or `COLLABORATOR` count, filtered before any verdict counts or supersedes another. Optional `ship.self_merge.verifier_logins` (login to provider) limits them to listed logins with the login's provider. An unknown provider counts as none.
+  - `glob2re` uses dotAll (from PR #20), so a newline in a file's name or a rename's old name still matches risk:high patterns.
 
 ## 0.9.0 (23 Oct 2026)
 

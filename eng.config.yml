@@ -1,4 +1,4 @@
-# eng.config.yml for eng-standard ITSELF (v0.8.0; Design A approved by Matt, 19 Oct 2026, 3:55 PM AEDT).
+# eng.config.yml for eng-standard ITSELF (v0.9.1; Design A approved by Matt, 19 Oct 2026, 3:55 PM AEDT).
 # eng-standard does not render its own AGENTS.md or SHIPPING.md (do not run `eng sync` here). This file feeds only
 # `eng verdict`, scripts/pr-gate.mjs (risk labels and self-merge) and the workflows. Changing it is risk:high.
 version: 1
@@ -11,13 +11,13 @@ project:
     test: npm test
 
 merge:                            # The merge rule (AGENTS.md "Merge rule"). Nobody bypasses anything, Matt included.
-  owner: "risk:low: .github/workflows/self-merge.yml. risk:high: Matt, by hand"
+  owner: "self-merge.yml: risk:low after one independent PASS, risk:high after PASSes from two non-author providers, both on the exact head"
   command: "self-merge: PUT pulls/<n>/merge {merge_method: squash, sha: <head>}. Matt: gh pr merge <n> --squash --delete-branch --match-head-commit <sha>"
   method: squash
 
 ship:
   verifier: fresh-context agent from a different model family than every author (eng verdict ... --pr <n>)
-  high_risk:                      # Any changed path here (or a rename's old path) = risk:high: Matt merges. Else risk:low.
+  high_risk:                      # Any changed path here (or a rename's old path) = risk:high: two providers must PASS. Else risk:low.
     label: risk:high
     low_label: risk:low
     reasons: [CI, merge setup, executable CLI, package scripts and dependencies, vendored third-party code]
@@ -39,13 +39,19 @@ ship:
       - "package-lock.json"
       - "**/.npmrc"
       - "vendor/**"               # third-party skills and kit code at pinned versions
+      - "**/auth/**"              # auth and billing code (none in this repo yet): two providers, like any gate path
+      - "**/auth.*"
+      - "**/billing/**"
+      - "**/billing.*"
     version_only: [package.json, package-lock.json]   # risk:low when the version field is the only change
   self_merge:                     # .github/workflows/self-merge.yml, every 30 min + workflow_dispatch
     base: main
     hold_label: hold              # Matt (or anyone) adds it to stop a PR; remove it to let it go
-    hold_minutes: 120             # both checks green on the head SHA this long before the merge (Matt's window)
+    hold_minutes: 120             # checks and verdicts green on the head SHA this long before the merge (Matt's window)
     check: test                   # GitHub Actions check run (.github/workflows/ci.yml)
     status: verdict               # commit status the independent checker posts (eng verdict ... --pr <n>)
+    # verifier_logins: { <login>: openai, <login>: google }   # once verifiers have their own GitHub identities: only
+    #                               these logins' verdict comments count, with the login's provider (docs/self-merge.md)
 
 gates:
   skipped_is_failed: true
