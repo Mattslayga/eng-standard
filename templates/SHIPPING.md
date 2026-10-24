@@ -85,7 +85,7 @@ The shared devbox filled at ~8 GB/hour: per-run test dirs in /tmp were never del
 - **Media off the box.** Walkthrough videos and other media go to Drive (or similar), with the link on the PR.
 - **Temp dirs delete themselves** on exit, failure or signal, like `$ENG_TMP` above.
 
-**Scratch, caches, containers and evidence** (v0.9.1; Warden's audit, Oct 2026: a motus proof script's mkdtemp in /tmp, Core Edge Rust targets in /tmp, equitus Deno caches per run, Docker anonymous volumes).
+**Scratch, caches, containers and evidence** (v0.9.2; Warden's audit, Oct 2026: a motus proof script's mkdtemp in /tmp, Core Edge Rust targets in /tmp, equitus Deno caches per run, Docker anonymous volumes).
 
 - **One round dir per round.** `eng launch -- <cmd>` and `eng verdict round -- <cmd>` run the command in a private 0700 worktree inside one round dir under `hygiene.scratch_root`, and a trap removes the round on exit, failure or signal. `eng launch --keep` is the only persistent form (`eng launch down <dir>`). Scripts write scratch only under `$ENG_SCRATCH` / `$ENG_TMP`, never bare `/tmp` (`eng lint` rule `script-bare-tmpdir`). Credentials stay in env or on stdin, never on disk (`credential-to-disk`).
 - **One shared build cache per toolchain per repo** (`hygiene.caches`). eng exports `CARGO_TARGET_DIR` (+ `CARGO_INCREMENTAL=0`), `BUN_INSTALL_CACHE_DIR`, `ENG_VITE_CACHE_DIR` (vite.config sets `cacheDir` from it) and a stable `DENO_DIR` to every child. No per-run targets or caches in tmp (`cargo-target-tmp`, `deno-dir-unstable`).

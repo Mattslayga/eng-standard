@@ -14,7 +14,7 @@ process.env.XDG_CACHE_HOME = fs.mkdtempSync(path.join(process.env.ENG_TMP ?? os.
 process.on('exit', () => fs.rmSync(process.env.XDG_CACHE_HOME, { recursive: true, force: true }));
 
 const ENG = path.resolve(new URL('../bin/eng.mjs', import.meta.url).pathname);
-const ROOTCFG = path.resolve(new URL('../eng.config.yml', import.meta.url).pathname);
+const ROOTCFG = path.resolve(new URL('../templates/merge-auto/eng.config.yml', import.meta.url).pathname);
 const q = autoConfig(YAML.parse(fs.readFileSync(ROOTCFG, 'utf8')));
 const qq = { ...q, mode: 'queue' };
 const authors = authorsFrom(['feat\n\nAgent: builder-1\nAgent-Family: claude'], ['t@t']);
@@ -55,13 +55,13 @@ test('second provider: gate, auth and billing paths need PASSes from two provide
 });
 
 test('verifier identity: with verifier_logins only listed logins count, with their own provider (round-1 P1: impersonation)', () => {
-  const comments = [{ user: { login: 'builder' }, body: verdictBody(V({ by: 'fake-gpt' })), created_at: '2026-10-24T01:00:00Z' },
-    { user: { login: 'builder' }, body: verdictBody(V({ by: 'fake-gemini', family: 'gemini', provider: 'google' })), created_at: '2026-10-24T01:01:00Z' }];
+  const comments = [{ user: { login: 'builder' }, author_association: 'OWNER', body: verdictBody(V({ by: 'fake-gpt' })), created_at: '2026-10-24T01:00:00Z' },
+    { user: { login: 'builder' }, author_association: 'OWNER', body: verdictBody(V({ by: 'fake-gemini', family: 'gemini', provider: 'google' })), created_at: '2026-10-24T01:01:00Z' }];
   const claimed = gateDecision({ bind: head(), files: ['src/auth/x.ts'], verdicts: parseVerdicts(comments), authors, q });
   assert.equal(claimed.pass, true, 'self-declared mode trusts the claims (eng doctor flags this mode)');
   const logins = { 'gpt-verifier-bot': 'openai', 'gemini-verifier-bot': 'google' };
   assert.equal(gateDecision({ bind: head(), files: ['src/auth/x.ts'], verdicts: trusted(parseVerdicts(comments), logins), authors, q }).need, 'verdict', 'claims from an unlisted login are ignored');
-  const real = [{ user: { login: 'gpt-verifier-bot' }, body: verdictBody(V({ provider: 'xai' })), created_at: '2026-10-24T01:00:00Z' }, { user: { login: 'gemini-verifier-bot' }, body: verdictBody(V({ by: 'g', family: 'gemini' })), created_at: '2026-10-24T01:01:00Z' }];
+  const real = [{ user: { login: 'gpt-verifier-bot' }, author_association: 'OWNER', body: verdictBody(V({ provider: 'xai' })), created_at: '2026-10-24T01:00:00Z' }, { user: { login: 'gemini-verifier-bot' }, author_association: 'OWNER', body: verdictBody(V({ by: 'g', family: 'gemini' })), created_at: '2026-10-24T01:01:00Z' }];
   const t = trusted(parseVerdicts(real), logins);
   assert.deepEqual(t.map(v => v.provider), ['openai', 'google'], 'the provider comes from the login, not the claim');
   assert.equal(gateDecision({ bind: head(), files: ['src/auth/x.ts'], verdicts: t, authors, q }).pass, true);
@@ -174,7 +174,8 @@ function prWith(file, { behind = false } = {}) {
   put('repos/o/r/pulls/7/commits?per_page=100', [[{ commit: { message: `change ${file}\n\nAgent: builder-1\nAgent-Family: claude`, author: { email: 't@t' } } }]]);
   return { head, patch, group, evq, evp };
 }
-const comments = (vs, n = 7) => put(`repos/o/r/issues/${n}/comments?per_page=100`, [vs.map((v, i) => ({ user: { login: 'shared' }, body: verdictBody(v), created_at: `2026-10-24T0${i}:00:00Z` }))]);
+// Verdict comments as GitHub returns them. `as`: author_association (OWNER = write access); `edited`: updated_at.
+const comments = (vs, n = 7) => put(`repos/o/r/issues/${n}/comments?per_page=100`, [vs.map(({ as = 'OWNER', edited, ...v }, i) => ({ user: { login: 'shared' }, author_association: as, body: verdictBody(v), created_at: `2026-10-24T0${i}:00:00Z`, ...(edited ? { updated_at: edited } : {}) }))]);
 
 test('eng merge gate, strict (pull_request): PASS bound to the exact head; a behind branch fails until updated', () => {
   setMode('strict');
@@ -205,6 +206,21 @@ test('eng merge gate, queue (merge_group): binds the queued patch-id; gate files
   comments([V({ patch_id: pr.patch, sha: pr.head }), V({ patch_id: pr.patch, sha: pr.head, by: 'gemini-1', family: 'gemini', provider: 'google' })]);
   assert.equal(eng(['merge', 'gate'], { GITHUB_EVENT_PATH: pr.evq }).status, 0);
   setMode('strict');
+});
+
+test('eng merge gate counts verdicts like self-merge (PR #21): outsiders, prototype families and edits', () => {
+  setMode('strict');
+  const pr = prWith('docs/trust.md'), v = o => V({ patch_id: pr.patch, sha: pr.head, ...o });
+  comments([v({ as: 'NONE' }), v({ by: 'v2', as: 'CONTRIBUTOR' })]);
+  let r = eng(['merge', 'gate'], { GITHUB_EVENT_PATH: pr.evp });
+  assert.equal(r.status, 1, 'a PASS from a commenter without write access never counts'); assert.match(r.stdout, /no independent verdict for head/);
+  comments([v({ result: 'FAIL', edited: '2026-10-24T05:00:00Z' }), v()]);
+  r = eng(['merge', 'gate'], { GITHUB_EVENT_PATH: pr.evp });
+  assert.equal(r.status, 1, 'an edited FAIL orders by its edit, so it is the verifier\'s latest'); assert.match(r.stdout, /is FAIL by verifier-1 \(its latest\)/);
+  const gp = prWith('bin/trust.mjs'), g = o => V({ patch_id: gp.patch, sha: gp.head, ...o });
+  comments([g(), g({ by: 'proto', family: '__proto__', provider: undefined })]);
+  r = eng(['merge', 'gate'], { GITHUB_EVENT_PATH: gp.evp });
+  assert.equal(r.status, 1, 'a prototype-named family resolves to no provider'); assert.match(r.stdout, /need PASSes from two providers.*have openai\)/);
 });
 
 test('eng merge gate: renaming a file out of an auth path still needs the second provider (round-3 P1)', () => {
@@ -362,10 +378,10 @@ test('eng merge watch: a failed restart delivery is retried, and noted once (rou
   put('repos/o/r/pulls?state=open&base=main&per_page=100', [[{ number: 10, draft: false, head: { sha: head, ref: 'feat4' }, base: { ref: 'main' }, labels: [], updated_at: now, body: '', html_url: 'https://x/10', user: { login: 'b' } }]]);
   put('repos/o/r/pulls/10/commits?per_page=100', [[{ commit: { message: 'r\n\nAgent: builder-9\nAgent-Family: claude', author: { email: 't@t' }, committer: { date: now } } }]]);
   put(`repos/o/r/commits/${head}/status`, { statuses: [{ context: 'eng-merge-gate', state: 'failure', updated_at: now, created_at: now }] });
-  const failV = V({ patch_id: 'x', sha: head, result: 'FAIL' }), key = `fail:verifier-1:2026-10-24T00:00:00Z`;
+  const failV = V({ patch_id: 'x', sha: head, result: 'FAIL' }), key = `fail:verifier-1:2026-10-24T00:00:00.000Z`;
   comments([failV], 10); fs.writeFileSync(calls, '');
   eng(['merge', 'watch'], { ENG_RESTART_WEBHOOK: 'https://hook', FAKE_CURL_EXIT: '22' });
-  put('repos/o/r/issues/10/comments?per_page=100', [[{ user: { login: 'shared' }, body: verdictBody(failV), created_at: '2026-10-24T00:00:00Z' }, { body: `<!-- eng-restart/v1 key=${key} -->\nWebhook: failed (curl exit 22); retried next run.` }]]);
+  put('repos/o/r/issues/10/comments?per_page=100', [[{ user: { login: 'shared' }, author_association: 'OWNER', body: verdictBody(failV), created_at: '2026-10-24T00:00:00Z' }, { body: `<!-- eng-restart/v1 key=${key} -->\nWebhook: failed (curl exit 22); retried next run.` }]]);
   eng(['merge', 'watch'], { ENG_RESTART_WEBHOOK: 'https://hook', FAKE_CURL_EXIT: '22' });
   let log = fs.readFileSync(calls, 'utf8');
   assert.equal(log.split('\n').filter(l => l === 'curl').length, 2, 'a failed delivery is attempted again');
@@ -388,7 +404,7 @@ test('eng merge post --dry-run and eng verdict --pr', () => {
   r = eng(['verdict', 'PASS', '--by', 'verifier-1', '--family', 'gpt', '--provider', 'openai', '--pr', '7']);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   const log = fs.readFileSync(calls, 'utf8');
-  assert.match(log, /api -X POST repos\/o\/r\/issues\/7\/comments --input -/);
+  assert.match(log, /api repos\/o\/r\/issues\/7\/comments -f body=<!-- eng-verdict\/v1 -->/);
   assert.match(log, new RegExp(`statuses/${git('rev-parse HEAD')} -f state=success -f context=verdict`));
 });
 const out = r => r.stdout + r.stderr;

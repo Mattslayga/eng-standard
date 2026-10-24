@@ -855,11 +855,13 @@ function verdictRecord(result) {
   sh(`git notes --ref ${VNOTES} append -m '${JSON.stringify(rec).replaceAll("'", "'\\''")}' ${H}`);
   if (result === 'FAIL') logMistake('verdict:FAIL', `FAIL by ${by} (${family})${rec.evidence ? ', evidence ' + rec.evidence : ''}`, 'verdict');
   console.log(`eng verdict: recorded ${result} by ${by} (${family}) on ${H.slice(0, 8)}, patch-id ${rec.patch_id.slice(0, 12)}`);
-  // --pr: the verdict also goes on the PR as a comment, so it survives a lost thread and the merge gate reads it on merge_group.
-  if (arg('--pr')) { postVerdict(engCtx(), arg('--pr'), rec, cfg); console.log(`eng verdict: posted the verdict comment on PR #${arg('--pr')}`); }
+  // --pr: the record (head SHA and provider included) also goes on the PR as an eng-verdict/v1 comment; self-merge and eng merge gate read those.
+  if (!arg('--pr')) return;
+  try { postVerdict(engCtx(), arg('--pr'), rec, cfg); } catch (e) { die(`verdict: could not post the verdict comment: ${e.message}`); }
+  console.log(`eng verdict: posted the verdict comment on PR #${arg('--pr')}`);
 }
 // eng verdict status --pr <n>: post the verdict to GitHub as commit status `verdict` on the PR's exact head SHA, so a
-// ruleset can see it. success only when `eng verdict check` passes (an independent PASS for
+// ruleset and the self-merge workflow can see it. success only when `eng verdict check` passes (an independent PASS for
 // this patch-id); failure otherwise. Local HEAD must be the PR's live head: the status binds to that SHA.
 function prHead(n) {
   const pr = JSON.parse(sh(`gh pr view ${Number(n)} --json headRefOid,state`));

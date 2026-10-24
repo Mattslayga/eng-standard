@@ -4,27 +4,28 @@ Versions follow the commit titles on `main` (`vX.Y.Z: ...`). Minor = new command
 
 ## 0.10.0 (24 Oct 2026)
 
-**Merge rule v0.10.0** (Matt, 24 Oct 2026: the rule at 10:31 AM AEDT, option 2 at 11:22 AM AEDT). No PR needs a human merge, gate changes included. It replaces the v0.8.0 self-merge.
+**`eng merge`: the v0.10.0 merge rule as a capability for consuming repos** (Matt, 24 Oct 2026: the rule at 10:31 AM AEDT, option 2 at 11:22 AM AEDT). eng-standard itself keeps the v0.9.1 two-provider `self-merge.yml` (Option A, 3:03 PM AEDT) as its one merge path; see "Reconciled with 0.9.1" below.
 
-- **One config, one required check.** `merge.auto` in `eng.config.yml`. The one required check is the commit status `eng-merge-gate`. The trusted `gate.yml` posts it (pull_request_target, workflow_run, issue_comment and dispatch; main's copy and main's code) after the PR's own `test` check. In queue mode, `ci.yml`'s `queued-gate` posts it on the queued commit. No job carries the name, and the gate fails a check run that does.
+- **One config, one required check.** `merge.auto` in a repo's `eng.config.yml`. The one required check is the commit status `eng-merge-gate`. The trusted `gate.yml` posts it (pull_request_target, workflow_run, issue_comment and dispatch; main's copy and main's code) after the PR's own `test` check. In queue mode, `ci.yml`'s `queued-gate` posts it on the queued commit. No job carries the name, and the gate fails a check run that does.
 - **Gate hardening from the verifier rounds.** Auto-reverts are compared byte for byte, renames count both paths for the second-provider rule, raw (NUL-separated) paths mean a non-ASCII, tab or newline filename cannot slip past it, a FAIL is reported before "behind", and each verifier's latest FAIL blocks. An auto-revert that main moved past is reported behind, not rejected: watch updates it and dispatches its checks, and the updated head is checked again against main's tip.
 - **Mode `strict` (default).** Branch protection requires up-to-date branches. The gate needs an independent PASS for the exact head commit, and GitHub auto-merge merges. **Mode `queue` (optional speed-up):** where the repo has a merge queue, the PASS binds the patch-id of the queued merge_group commit. `eng doctor` detects which mode the repo can run and fails a mismatch.
 - **Gate rules.**
   - Gate, auth and billing paths (`merge.auto.second_provider_paths`) need PASSes from two providers other than the authors'.
   - `merge.auto.verifier_logins` binds verdicts to verifier GitHub identities. Unset, they are self-declared, and `eng doctor` says so.
   - An `auto-revert` PR passes only when all of these hold: opened by `github-actions[bot]`, on `auto-revert/<sha12>`, its target is on main, and it is the exact inverse.
-- **`eng verdict ... --pr <n>`** also posts the verdict as a PR comment and re-runs the required check.
+- **`eng verdict ... --pr <n>`** posts the verdict comment and, in a repo with `merge.auto`, dispatches `gate.yml`.
 - **`eng merge post`** (`merge-post.yml`): the shipped-artifact check after each merge. A failure opens an auto-revert PR with auto-merge on and dispatches the check with the PR number.
 - **`eng merge watch`** (`merge-watch.yml`, every 10 min):
   - A red or missing check with no activity for 30 min gets the `stuck` label.
   - A FAIL restarts the owner at once. A missing verdict, or a missing second-provider PASS, restarts it 30 min after the push. A failed webhook delivery is retried.
   - In strict mode it updates a behind PR that has auto-merge on.
 - **`eng merge settings`** prints the ruleset for the declared mode and never applies it.
-- **Repo moved** to `Slaytek-Systems/eng-standard` (approved by Matt, 24 Oct 2026). Tags and releases survived; v0.9.0 is still Latest.
-- **Removed:** `self-merge.yml`, `risk-label.yml`, `scripts/pr-gate.mjs`, `lib/self-merge.mjs`, `lib/risk.mjs`, `docs/self-merge.md`, `ship.high_risk` and `ship.self_merge`.
+- **Reference workflows and config** in `templates/merge-auto/` (`gate.yml`, `merge-post.yml`, `merge-watch.yml`, `ci.yml`, `eng.config.yml`), copied into a consuming repo's `.github/workflows/`. They are not live in eng-standard.
+- **Reconciled with 0.9.1.** `lib/merge-queue.mjs` now takes verdict comments, the trust policy and authorship from `lib/self-merge.mjs`, so `eng merge gate` gets PR #21's fixes: only `OWNER`, `MEMBER` or `COLLABORATOR` comments count, `verifier_logins` keys each verifier, provider lookups are own-property only, an unknown or contradicting provider counts as none, and an edited comment counts from its edit. eng-standard does not switch to `eng merge` here: that needs "Allow auto-merge" and a ruleset requiring `eng-merge-gate`, both Matt's settings, plus a follow-up PR that removes `self-merge.yml` in the same change.
+- **Repo moved** to `Slaytek-Systems/eng-standard` (approved by Matt, 24 Oct 2026). Tags and releases survived.
 - `npm test` is now `node --test test/*.test.mjs`, so it works on Node 20 and Node 24.
 
-## 0.9.1 (24 Oct 2026)
+## 0.9.2 (24 Oct 2026)
 
 Scratch and disk hygiene, from Warden's audit (Oct 2026): a motus proof script's mkdtemp in /tmp, Core Edge Rust targets in /tmp, equitus Deno caches per run, Docker anonymous volumes.
 
@@ -35,6 +36,17 @@ Scratch and disk hygiene, from Warden's audit (Oct 2026): a motus proof script's
 - **Built-in disk rules in `eng lint`** (`hygiene.disk_lint`, on by default; each bites its fixture): `script-bare-tmpdir`, `cargo-target-tmp`, `deno-dir-unstable`, `container-no-rm`, `volume-prune-all` (bans `docker volume prune -a`), `credential-to-disk`. Upgrading repos may see new findings: fix them or baseline them (`eng renovate baseline --kind lint`).
 - **`eng doctor`** (gate `doctor`) fails a config that skips the scratch root, the cache for each toolchain the repo uses, the Vite `cacheDir` (each package that declares Vite needs its own `vite.config` in its directory: Vite reads no cache env var), the container label, `hygiene.evidence: per_pr` or the disk rules, and lists disk-rule findings.
 - SHIPPING.md §5 and the AGENTS.md block describe the rules. The test suite keeps eng's scratch and caches inside each run (`XDG_CACHE_HOME`).
+
+## 0.9.1 (24 Oct 2026)
+
+- **Two-provider self-merge** (Option A, approved by Matt, 24 Oct 2026, 3:03 PM AEDT) for eng-standard's own `self-merge.yml`:
+  - risk:low merges after one independent PASS on the exact head. risk:high (including auth and billing paths, now in `ship.high_risk.paths`) merges after PASSes from two verifiers on two different providers, neither the authors'. Before this, risk:high waited for Matt.
+  - The head must contain main's tip. A missing, stale or FAIL verdict refuses; each verifier's latest verdict counts and any FAIL blocks. Hold, draft and the hold window are kept; the window also counts from the latest counted verdict.
+  - A red post-merge `test` on main opens the tip's exact inverse as an `auto-revert/<sha12>` PR from `github-actions[bot]`. It is the only PR that may merge while main is red, and it still needs verdicts. The workflow gains `pull-requests: write`.
+  - `eng verdict ... --pr <n>` also posts an `eng-verdict/v1` PR comment (head SHA, family, provider); self-merge reads verdicts from those. Comment format, `parseVerdicts` and `authorsFrom` come from PR #20.
+  - `FAMILY_PROVIDER` moves to `lib/self-merge.mjs` (a risk:high path); `lib/renovate.mjs` re-exports it.
+  - Trust policy: only verdict comments from `OWNER`, `MEMBER` or `COLLABORATOR` count, filtered before any verdict counts or supersedes another. Optional `ship.self_merge.verifier_logins` (login to provider) limits them to listed logins with the login's provider. An unknown provider counts as none.
+  - `glob2re` uses dotAll (from PR #20), so a newline in a file's name or a rename's old name still matches risk:high patterns.
 
 ## 0.9.0 (23 Oct 2026)
 

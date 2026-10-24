@@ -1,0 +1,60 @@
+# Reference merge.auto config (v0.10.0 merge rule: Matt, 24 Oct 2026, 10:31 AM AEDT; option 2 at 11:22 AM AEDT). It is the
+# config the merge-rule sandboxes ran. A consuming repo copies the `merge` block, the workflows next to this file into its
+# .github/workflows/, and applies `eng merge settings`. eng-standard itself merges through self-merge.yml (root eng.config.yml).
+version: 1
+
+project:
+  name: eng-standard
+  default_branch: main
+  protected_branches: [main]      # Never rebased, force-pushed or deleted. Feature branches may be rebased.
+  commands:
+    test: npm test
+
+merge:                            # The merge rule (AGENTS.md). No PR needs a human merge, gate changes included. Nobody bypasses anything.
+  owner: "GitHub auto-merge behind strict branch protection. No human merges, Matt included"
+  command: "gh pr merge <n> --auto --squash   (the author's lane turns on auto-merge; GitHub merges once the branch is up to date and the eng-merge-gate status passes)"
+  method: squash
+  auto:
+    mode: strict                  # strict: PR up to date with main, PASS bound to the exact head (default). queue: merge queue, PASS bound to the queued patch-id (optional speed-up; eng doctor says which the repo can run)
+    check: eng-merge-gate         # the ONE required check: a commit status from the trusted .github/workflows/gate.yml
+    tests_check: test             # the PR's own tests (ci.yml job test); the gate waits for it
+    workflow: ci.yml
+    gate_workflow: gate.yml
+    # gate_app_id: <id>           # a GitHub App that posts eng-merge-gate; the ruleset then binds the check to it (eng doctor fails until set)
+    base: main
+    # A PR touching these also needs a second PASS from a verifier on a different provider (gate, auth, billing).
+    second_provider_paths:
+      - ".github/**"              # workflows (ci, merge-post, merge-watch), CODEOWNERS, actions
+      - ".buildkite/**"
+      - ".eng/ci/**"
+      - ".githooks/**"
+      - "eng.config.yml"          # this file: the rule itself
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "docs/merge-queue.md"
+      - "bin/**"                  # the eng CLI: verdict, gate and merge logic every repo relies on
+      - "scripts/**"
+      - "lib/merge-queue.mjs"
+      - "lib/merge-cli.mjs"
+      - "lib/hygiene.mjs"         # eng doctor
+      - "lib/e2e-policy.mjs"      # glob2re, which the path matcher uses
+      - "lib/renovate.mjs"        # FAMILY_PROVIDER, which the provider rule uses
+      - "package.json"
+      - "package-lock.json"
+      - "**/.npmrc"
+      - "vendor/**"
+      - "**/auth/**"
+      - "**/billing/**"
+      - "**/payments/**"
+    post_merge: { check: "bash scripts/shipped-artifact-check.sh" }   # tests on merged main + the npm-packed artifact; red = auto-revert PR
+    stuck_minutes: 30             # red or missing required check, no activity this long = `stuck` label
+    verdict_wait_minutes: 30      # no verdict this long after the head was pushed = restart the owner
+    restart_webhook_env: ENG_RESTART_WEBHOOK   # repo secret: URL that restarts the owning job; unset = comment only
+    # verifier_logins: { <github-login>: openai, <github-login>: google }   # bind verdicts to verifier identities. Unset: verdicts are self-declared (one shared GitHub identity); eng doctor flags it
+
+ship:
+  verifier: fresh-context agent; family different from every author; provider recorded (eng verdict --provider ... --pr <n>)
+
+gates:
+  skipped_is_failed: true
+  required: [test, verdict]

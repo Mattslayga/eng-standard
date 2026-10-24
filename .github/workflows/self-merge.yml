@@ -1,0 +1,48 @@
+# Squash-merges at most ONE PR into main per run, only when every rule in lib/self-merge.mjs holds on the current head
+# SHA (head contains main's tip, test green, verdict success, verdict comments for that head: one independent PASS for
+# risk:low, PASSes from two non-author providers for risk:high; no hold label, not draft, green for
+# ship.self_merge.hold_minutes). Then dispatches ci.yml on main (a GITHUB_TOKEN merge fires no push workflow); when that
+# post-merge check fails, the next run opens the tip's exact inverse as an auto-revert PR. Rules: AGENTS.md.
+# Stop one PR: add the `hold` label. Stop everything: gh workflow disable self-merge.yml
+name: self-merge
+on:
+  schedule:
+    - cron: '7,37 * * * *'          # every 30 min, off the hour (GitHub delays top-of-hour schedules)
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Only consider this PR number (every rule still applies; the hold window cannot be shortened)
+        required: false
+        default: ''
+      dry_run:
+        description: Report only, merge nothing
+        type: boolean
+        default: false
+permissions: {}
+concurrency:
+  group: self-merge
+  cancel-in-progress: false
+jobs:
+  self-merge:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write               # squash-merge through the API, delete the merged head branch, push the auto-revert
+      pull-requests: write          # open the auto-revert PR and set its risk label (risk-label.yml skips bot PRs)
+      checks: read                  # the test check run on the head SHA
+      statuses: read                # the verdict commit status on the head SHA
+      actions: write                # dispatch ci.yml on main after the merge, and on an auto-revert branch
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --ignore-scripts
+      - run: node scripts/pr-gate.mjs merge ${DRY_RUN:+--dry-run}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          DRY_RUN: ${{ inputs.dry_run == true && '1' || '' }}
