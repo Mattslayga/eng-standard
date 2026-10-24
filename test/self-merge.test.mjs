@@ -7,7 +7,7 @@ import path from 'node:path';
 import { spawnSync, execSync } from 'node:child_process';
 import YAML from 'yaml';
 import { classifyRisk, versionOnly } from '../lib/risk.mjs';
-import { selfMergeConfig, decide, verdictBody, parseVerdicts, authorsFrom, isAutoRevert, BOT } from '../lib/self-merge.mjs';
+import { selfMergeConfig, decide, verdictBody, parseVerdicts, authorsFrom, isAutoRevert, trusted, BOT } from '../lib/self-merge.mjs';
 
 const ROOTCFG = path.resolve(new URL('../eng.config.yml', import.meta.url).pathname);
 const ENG = path.resolve(new URL('../bin/eng.mjs', import.meta.url).pathname);
@@ -48,7 +48,8 @@ test('risk: a rename out of a high-risk path is high', () => {
 const SHA = 'a'.repeat(40), T0 = Date.parse('2026-10-19T05:00:00Z');
 const pr = (o = {}) => ({ number: 1, base: 'main', draft: false, sameRepo: true, headSha: SHA, labels: ['risk:low'], ...o });
 const authors = authorsFrom(['feat\n\nAgent: builder-1\nAgent-Family: claude'], ['t@t']);
-const V = (o = {}) => ({ sha: SHA, patch_id: 'p1', result: 'PASS', by: 'gpt-checker', family: 'gpt', provider: 'openai', comment_at: '2026-10-19T04:00:00Z', ...o });
+const V = (o = {}) => ({ sha: SHA, patch_id: 'p1', result: 'PASS', by: 'gpt-checker', family: 'gpt', provider: 'openai', login: 'Mattslayga', association: 'OWNER', comment_at: '2026-10-19T04:00:00Z', ...o });
+const OUT = { login: 'unrelated-outsider', association: 'NONE' };
 const GEM = V({ by: 'gemini-checker', family: 'gemini', provider: 'google' });
 const st = (o = {}) => ({ risk: 'low', containsBase: true, check: { head_sha: SHA, status: 'completed', conclusion: 'success', completed_at: '2026-10-19T05:00:00Z' }, status: { state: 'success', created_at: '2026-10-19T04:30:00Z' }, verdicts: [V()], authors, ...o });
 const hi = (o = {}) => st({ risk: 'high', verdicts: [V(), GEM], ...o });
@@ -175,7 +176,9 @@ test('rule 5: hold and draft still stop a merge; the window also counts from the
 test('verdict comments round-trip with head SHA and provider; other comments are ignored', () => {
   const rec = { sha: SHA, patch_id: 'p1', result: 'PASS', by: 'g1', family: 'gemini', provider: 'google', at: '2026-10-19T04:00:00Z' };
   const got = parseVerdicts([{ body: 'LGTM', created_at: 'x' }, { body: verdictBody(rec), created_at: '2026-10-19T04:01:00Z' }, { body: `${verdictBody(rec).split('```')[0]}` }]);
-  assert.deepEqual(got, [{ ...rec, comment_at: '2026-10-19T04:01:00Z' }]);
+  assert.deepEqual(got, [{ ...rec, login: null, association: null, comment_at: '2026-10-19T04:01:00Z' }]);
+  const [w] = parseVerdicts([{ body: verdictBody(rec), user: { login: 'x' }, author_association: 'NONE', created_at: 'y' }]);
+  assert.deepEqual([w.login, w.association], ['x', 'NONE'], 'the commenter is kept for the trust policy');
 });
 
 test('rule 6 (pure): only the bot\'s single-commit exact inverse of the red tip counts as its auto-revert', () => {
@@ -231,7 +234,8 @@ test('rule 6: a red post-merge check on main opens the tip\'s exact inverse from
 });
 
 test('rules 2 and 6: a risk:high PR with two-provider PASSes on its head merges, then the post-merge check runs on main', () => {
-  const comments = [V(), GEM].map(v => ({ body: verdictBody(v), created_at: v.comment_at }));
+  const asComment = v => ({ body: verdictBody(v), user: { login: v.login }, author_association: v.association, created_at: v.comment_at });
+  const comments = [V(), GEM].map(asComment);
   const p = { number: 3, state: 'open', title: 'fix: gate', draft: false, created_at: '2026-10-19T03:00:00Z', labels: [{ name: 'risk:high' }], base: { ref: 'main', sha: TIP }, head: { sha: SHA, ref: 'feat/x', repo: { full_name: 'o/r' } } };
   const routes = {
     [`GET ${R}/commits/main`]: { sha: TIP }, ...runs(TIP, 'success'), ...runs(SHA, 'success'),
@@ -254,4 +258,39 @@ test('rules 2 and 6: a risk:high PR with two-provider PASSes on its head merges,
   assert.match(r.stdout, /skip: head aaaaaaaa does not contain main's tip/); assert.equal(r.sent.length, 0);
   r = gate({ ...routes, [`GET ${R}/issues/3/comments?per_page=100`]: comments.slice(0, 1) });
   assert.match(r.stdout, /skip: risk:high needs PASSes/); assert.equal(r.sent.length, 0);
+  r = gate({ ...routes, [`GET ${R}/issues/3/comments?per_page=100`]: [V(), { ...GEM, ...OUT }].map(asComment) });
+  assert.match(r.stdout, /skip: risk:high needs PASSes .* have openai$/m, 'an outsider\'s comment cannot supply the second provider'); assert.equal(r.sent.length, 0);
+  const lowDocs = { ...routes, [`GET ${R}/pulls?state=open&base=main&per_page=100`]: [{ ...p, labels: [{ name: 'risk:low' }] }], [`GET ${R}/issues/3/labels`]: [{ name: 'risk:low' }], [`GET ${R}/issues/3/comments?per_page=100`]: comments.slice(0, 1) };
+  for (const files of [[{ filename: '.github/workflows/de\nploy.yml', status: 'modified' }], [{ filename: 'src/policy.mjs', previous_filename: 'src/auth/a\nb.ts', status: 'renamed' }]]) {
+    r = gate({ ...lowDocs, [`GET ${R}/pulls/3/files?per_page=100`]: files });
+    assert.match(r.stdout, /skip: risk:high needs PASSes/, JSON.stringify(files)); assert.equal(r.sent.length, 0);
+  }
+});
+
+test('round-1 P1: a raw newline in a current or previous filename still matches risk:high patterns', () => {
+  for (const f of ['.github/workflows/de\nploy.yml', 'src/auth/a\nb.ts', 'app/billing/a\nb.mjs', 'bin/\neng.mjs'])
+    assert.equal(classifyRisk(mod(f), HR).risk, 'high', JSON.stringify(f));
+  assert.equal(classifyRisk([{ filename: 'src/policy.mjs', previous_filename: 'src/auth/a\nb.ts', status: 'renamed' }], HR).risk, 'high', 'rename out of a newline auth path');
+});
+
+test('round-1 P1: only trusted commenters count, before any verdict counts or supersedes another', () => {
+  const late = at(600), H = pr({ labels: ['risk:high'] }), FAIL = V({ by: 'gem-r', family: 'gemini', provider: 'google', result: 'FAIL', comment_at: '2026-10-19T04:01:00Z' });
+  assert.match(decide(H, hi({ verdicts: [V(), { ...GEM, ...OUT }] }), C, late).reason, /have openai$/, 'an outsider cannot supply the second provider');
+  assert.match(decide(H, hi({ verdicts: [{ ...V(), ...OUT }, { ...GEM, ...OUT }] }), C, late).reason, /no independent verdict comment/, 'nor both');
+  assert.match(decide(pr(), st({ verdicts: [FAIL, V({ comment_at: '2026-10-19T04:02:00Z' }), { ...FAIL, ...OUT, result: 'PASS', comment_at: '2026-10-19T04:03:00Z' }] }), C, late).reason, /FAIL by gem-r/, 'an outsider reusing a failing verifier\'s `by` cannot clear its FAIL');
+  for (const association of ['CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR', 'NONE', null]) assert.equal(trusted([V({ association })], null).length, 0, String(association));
+  for (const v of [V({ by: 'x', family: 'invented-family', provider: 'invented-provider' }), V({ by: 'x', family: 'gemini', provider: 'invented-provider' })])
+    assert.match(decide(H, hi({ verdicts: [V(), v] }), C, late).reason, /have openai$/, 'an unknown provider is no provider');
+});
+
+test('round-1 P1: with ship.self_merge.verifier_logins only listed logins count, with the login\'s provider', () => {
+  const CL = selfMergeConfig({ ship: { self_merge: { verifier_logins: { 'gpt-bot': 'openai', 'gemini-bot': 'google' } } } }), late = at(600), H = pr({ labels: ['risk:high'] });
+  const gpt = V({ login: 'gpt-bot', association: 'COLLABORATOR' }), gem = V({ by: 'g', family: 'gemini', provider: 'google', login: 'gemini-bot', association: 'COLLABORATOR' });
+  assert.equal(decide(H, hi({ verdicts: [gpt, gem] }), CL, late).merge, true);
+  assert.match(decide(H, hi({ verdicts: [gpt, { ...gem, login: 'Mattslayga' }] }), CL, late).reason, /have openai$/, 'an unlisted login does not count, even the owner');
+  assert.match(decide(H, hi({ verdicts: [gpt, { ...gpt, by: 'other', family: 'gemini', provider: 'google' }] }), CL, late).reason, /have openai$/, 'the provider is the login\'s, not the claim');
+  assert.match(decide(H, hi({ verdicts: [gpt, gem, { ...gem, by: 'someone-else', result: 'FAIL', comment_at: '2026-10-19T04:05:00Z' }] }), CL, late).reason, /FAIL/, 'a login\'s latest verdict supersedes only its own');
+  assert.match(decide(H, hi({ verdicts: [gpt, { ...gem, association: 'NONE' }] }), CL, late).reason, /have openai$/, 'a listed login still needs write access');
+  for (const bad of [{ a: 'devin' }, [], {}, 'x']) assert.throws(() => selfMergeConfig({ ship: { self_merge: { verifier_logins: bad } } }), /verifier_logins/, JSON.stringify(bad));
+  assert.equal(C.verifier_logins, null, 'eng-standard has no verifier logins yet: the shared-account residual');
 });

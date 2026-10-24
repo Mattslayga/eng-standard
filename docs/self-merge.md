@@ -20,19 +20,32 @@ Self-merge merges a PR only when **all** hold:
 - Base `main`, branch in this repo (no forks), not draft, no `hold` label, and a `risk:low` or `risk:high` label.
 - The head contains main's tip: `compare/<tip>...<head>` reports `behind_by: 0`.
 - The latest `test` check run (GitHub Actions) is success on the head SHA, and the `verdict` status is success on it.
-- The verdict comments pass the tier's rule. Only comments whose `sha` is the head SHA count. Comments by an author
-  (`Agent:` id or commit email) or an author's family never count. Each verifier's latest comment counts, and any FAIL
-  among them refuses the merge.
+- The verdict comments pass the tier's rule. First the trust policy (below) drops every untrusted comment. Then only
+  comments whose `sha` is the head SHA count. Comments by an author (`Agent:` id or commit email) or an author's family
+  never count. Each verifier's latest comment counts, and any FAIL among them refuses the merge.
   - **risk:low** needs one PASS (or PASS+NOTES).
   - **risk:high** needs PASSes from two different providers, neither among the authors' providers (from their
     `Agent-Family:` trailers). A PR is risk:high if its label says so or the files recomputed against
-    `ship.high_risk.paths` say so. A verifier's provider is its `provider` field, else its family's provider. A
-    `provider` that contradicts the family counts as no provider.
+    `ship.high_risk.paths` say so. Path patterns match raw names, newlines included (`glob2re` uses dotAll), for both
+    a file's name and a rename's old name.
 - The latest of the `test` check, the `verdict` status and the counted verdict comments went green at least
   `hold_minutes` ago.
 
 A new push gives a new head SHA, so everything must go green again for it and the window restarts. `hold` is checked
 again just before the merge call. Dispatch inputs cannot shorten the window.
+
+**Trust policy** (`trusted()` in `lib/self-merge.mjs`, applied inside `decide()` before any verdict counts or
+supersedes another). The repo is public, so anyone can post a comment that looks like a verdict.
+
+- Only comments whose GitHub `author_association` is `OWNER`, `MEMBER` or `COLLABORATOR` count.
+- When `ship.self_merge.verifier_logins` (login to provider, in main's `eng.config.yml`) is set, only those logins
+  count. The provider is the login's, whatever the comment claims, and each login is one verifier for superseding.
+- Without it, a verifier is its `by` field and its provider is its `provider` field, else its family's provider. A
+  provider that is not a known one (openai, anthropic, google, xai), or that contradicts the family, counts as none.
+
+**Residual.** eng-standard has no `verifier_logins` yet. Every agent posts through Matt's account, so a comment with
+write access can claim any `by`, family and provider. Separate verifier identities listed in `verifier_logins` close
+this.
 
 The controller is main's code and main's `eng.config.yml`. A PR's comments and commit messages are read only as data,
 so a PR cannot change the rule it is judged by. The family-to-provider map lives in `lib/self-merge.mjs` for the same

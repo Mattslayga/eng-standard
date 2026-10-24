@@ -10,6 +10,8 @@ Versions follow the commit titles on `main` (`vX.Y.Z: ...`). Minor = new command
   - A red post-merge `test` on main opens the tip's exact inverse as an `auto-revert/<sha12>` PR from `github-actions[bot]`. It is the only PR that may merge while main is red, and it still needs verdicts. The workflow gains `pull-requests: write`.
   - `eng verdict ... --pr <n>` also posts an `eng-verdict/v1` PR comment (head SHA, family, provider); self-merge reads verdicts from those. Comment format, `parseVerdicts` and `authorsFrom` come from PR #20.
   - `FAMILY_PROVIDER` moves to `lib/self-merge.mjs` (a risk:high path); `lib/renovate.mjs` re-exports it.
+  - Trust policy: only verdict comments from `OWNER`, `MEMBER` or `COLLABORATOR` count, filtered before any verdict counts or supersedes another. Optional `ship.self_merge.verifier_logins` (login to provider) limits them to listed logins with the login's provider. An unknown provider counts as none.
+  - `glob2re` uses dotAll (from PR #20), so a newline in a file's name or a rename's old name still matches risk:high patterns.
 
 ## 0.9.0 (23 Oct 2026)
 
