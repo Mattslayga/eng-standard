@@ -42,8 +42,28 @@ It pins eng-standard `f2e0519`, later `94b2212`. The ruleset is `25764508` (stri
 | Found and fixed (`94b2212`) | `eng merge post` approves its own revert PR's held runs. `eng merge watch` dispatches `merge-post.yml` when main's tip has no run |
 | [PR 9](https://github.com/Mattslayga/eng-sandbox/pull/9) F, credential-looking file, hands-off | Merged. The post-merge check failed. The bot opened [PR 10](https://github.com/Mattslayga/eng-sandbox/pull/10), printed `approved held run 40051955475 (ci)`, and auto-merge merged it (`9a9d37d7`). One `merge-watch` run, triggered by hand in place of its 10-minute schedule, printed `main 9a9d37d7 has no merge-post.yml run: dispatching it`, and that post-merge run passed. No person acted between the merge of F and the green post-merge check |
 
+## Trusted gate (after round 2: the required check must not come from PR-controlled workflow code)
+
+The round-2 openai finding showed that a PR could delete the gate step from its own `ci.yml`. `eng-merge-gate` is now a commit status, posted only by:
+- the trusted `gate.yml` (pull_request_target, workflow_run, issue_comment and dispatch, always main's copy and main's code) on PR heads;
+- `ci.yml`'s `queued-gate` job on queued commits, in queue mode.
+
+No job carries the required name.
+
+| Step (`Slaytek-Systems/eng-sandbox-queue`, eng-standard `b6cbe3a`, later `d72d767`) | Result |
+|---|---|
+| [PR 5](https://github.com/Slaytek-Systems/eng-sandbox-queue/pull/5) Q-A adds `gate.yml` | Merged through the queue under the previous gate |
+| [PR 6](https://github.com/Slaytek-Systems/eng-sandbox-queue/pull/6) Q-B, first head | The trusted gate posted `FAIL: a check run named eng-merge-gate exists on this head`. The merge_group-only job named `eng-merge-gate` is *skipped* on PRs, and **GitHub counts a skipped required job as passing**, so that job was a real loophole. Fixed in `d72d767`: the job is `queued-gate`, and it posts the status |
+| PR 6 Q-B, after the fix | The trusted gate said `eng-merge-gate=failure: no independent verdict for patch-id 997f86526d22`. Each verdict comment re-triggered `gate.yml` (issue_comment). With openai + google stand-in PASSes the status became `success`. Queued; `queued-gate` posted `eng-merge-gate=success` on the queued commit `79a7308e`; merged |
+| [PR 7](https://github.com/Slaytek-Systems/eng-sandbox-queue/pull/7) Q-C, forgery experiment | A PR job named `eng-merge-gate` reported success. The trusted gate's status said `failure: ... only the trusted gate may report eng-merge-gate`, and GitHub reported **BLOCKED**. Closed unmerged |
+
+**Strict sandbox, wedged.**
+- The first trusted `gate.yml` merged into `Mattslayga/eng-sandbox` (PR 11) failed on every PR. It had `persist-credentials: false`, so a private repo could not fetch `pull/<n>/head` (exit 128), and it posted no status. Its job was also named `eng-merge-gate`. Both are fixed in `b6cbe3a`.
+- That broken gate on `main` gates its own fix, so [PR 12](https://github.com/Mattslayga/eng-sandbox/pull/12) cannot pass. Recovery would need a ruleset change or a posted status, so I left it for Matt. `docs/merge-queue.md` has a "Break glass" section about this.
+
 ## Open for Matt
 
 - **Org setting.** `Slaytek-Systems` forbids GitHub Actions from creating PRs. The auto-revert needs it ("Allow GitHub Actions to create and approve pull requests", org and repo level). `eng doctor` fails until it is on.
 - **Verifier identity.** Every agent on the devbox posts to GitHub as one identity, so verdict identity is self-declared. Separate bot accounts or GitHub Apps per verifier provider, listed in `merge.auto.verifier_logins`, close that. `eng doctor` fails until they exist.
+- **Strict sandbox recovery.** `Mattslayga/eng-sandbox` is wedged by the first `gate.yml` (above). It needs an owner-only ruleset reset, or deleting and recreating the sandbox.
 - **eng-standard settings** (`eng merge settings` prints them): strict ruleset, one required check `test`, auto-merge, the PR-creation permission, labels `stuck`, `hold`, `auto-revert`, and the `ENG_RESTART_WEBHOOK` secret.
