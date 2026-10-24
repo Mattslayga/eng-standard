@@ -85,6 +85,10 @@ test('doctor config: every skipped piece fails; the template declares them all',
   const rel = doctorConfig({ ...tpl, hygiene: { ...tpl.hygiene, scratch_root: '.eng/scratch', caches: { ...tpl.hygiene.caches, vite: 'node_modules/.vite' } } }, files, read).filter(c => !c.ok).map(c => c.what);
   assert.ok(rel.some(w => /scratch_root/.test(w)) && rel.some(w => /caches.vite/.test(w)), 'relative paths are a new cache per round or worktree, so doctor fails them');
   assert.ok(doctorConfig({ ...tpl, hygiene: { ...tpl.hygiene, tmp_lint: false } }, files, read).some(c => !c.ok && /tmp_lint/.test(c.what)), 'doctor fails tmp_lint: false');
+  for (const p of ['/tmp/${repo}/scratch', '/var/tmp/eng/${repo}', '${TMPDIR}/eng', '$TMP/x']) {
+    const bad = doctorConfig({ ...tpl, hygiene: { ...tpl.hygiene, scratch_root: p, caches: { ...tpl.hygiene.caches, cargo_target: p } } }, files, read).filter(c => !c.ok).map(c => c.what);
+    assert.ok(bad.some(w => /scratch_root/.test(w)) && bad.some(w => /caches.cargo_target/.test(w)), `doctor fails a temp path with variables: ${p}`);
+  }
 });
 
 test('eng launch -- <cmd>: one 0700 round under the scratch root, shared caches, removed on failure', () => {
@@ -122,6 +126,20 @@ test('eng launch -- <cmd>: SIGTERM to eng alone stops the command, exits 143 and
   const code = await new Promise(r => { p.on('exit', (c, s) => r(c ?? s)); p.kill('SIGTERM'); });
   assert.equal(code, 143, 'exit code reports the signal, not 0');
   assert.throws(() => process.kill(Number(pid), 0), 'the command was stopped, not orphaned');
+  assert.ok(!fs.existsSync(round), 'round removed');
+});
+
+test('eng launch -- <cmd>: SIGTERM stops the whole command tree; nothing writes after eng exits', async () => {
+  const beat = path.join(marks, 'beat');
+  const p = spawn(process.execPath, [ENG, 'launch', '--ref', 'HEAD', '--', 'sh', '-c', `(while :; do date +%s%N >> ${beat}; sleep 0.1; done) & echo "$ENG_SCRATCH" > ${marks}/e; wait`], { cwd: dir, env });
+  const m = path.join(marks, 'e');
+  for (let i = 0; i < 100 && !(fs.existsSync(m) && fs.readFileSync(m, 'utf8').trim() && fs.existsSync(beat)); i++) await new Promise(r => setTimeout(r, 100));
+  const round = fs.readFileSync(m, 'utf8').trim();
+  const code = await new Promise(r => { p.on('exit', (c, s) => r(c ?? s)); p.kill('SIGTERM'); });
+  assert.equal(code, 143);
+  const n = fs.readFileSync(beat, 'utf8').split('\n').length;
+  await new Promise(r => setTimeout(r, 600));
+  assert.equal(fs.readFileSync(beat, 'utf8').split('\n').length, n, 'the background worker stopped with eng');
   assert.ok(!fs.existsSync(round), 'round removed');
 });
 
