@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Post-merge check on the shipped artifact (merge.queue.post_merge.check): the tests on the merged main, then the npm
+# Post-merge check on the shipped artifact (merge.auto.post_merge.check): the tests on the merged main, then the npm
 # package as it ships (npm pack), installed into a clean project, must load and run. A failure opens an auto-revert.
 set -euo pipefail
 npm test

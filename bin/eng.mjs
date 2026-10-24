@@ -868,7 +868,7 @@ function prHead(n) {
 function verdictStatus(n) {
   if (!/^\d+$/.test(n || '')) die('usage: eng verdict status --pr <n>');
   loadConfig(); clean(); prHead(n);
-  const H = head(), r = spawnSync(process.execPath, [fileURLToPath(import.meta.url), 'verdict', 'check'], { cwd: ROOT, encoding: 'utf8' });
+  const H = head(), r = spawnSync(process.execPath, [fileURLToPath(import.meta.url), 'verdict', 'check', ...(arg('--base') ? ['--base', arg('--base')] : [])], { cwd: ROOT, encoding: 'utf8' });
   const out = (r.stdout + r.stderr).trim(), state = r.status === 0 ? 'success' : 'failure';
   if (out) console.log(out);
   const desc = (out.split('\n').filter(Boolean).at(-1) || '').replace(/^eng(: FAIL)?:? */, '').slice(0, 140);

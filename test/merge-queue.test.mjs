@@ -40,7 +40,8 @@ test('queue: the PASS binds the patch-id; author verdicts never count; the lates
   assert.equal(gateDecision({ bind: patch, files: ['docs/a.md'], verdicts: [V({ sha: 'c'.repeat(40) })], authors, q: qq }).pass, true, 'queue mode binds the patch, not the head');
   d = gateDecision({ bind: patch, files: ['docs/a.md'], verdicts: [V(), V({ by: 'verifier-2', result: 'FAIL' })], authors, q: qq });
   assert.equal(d.need, 'fix'); assert.equal(d.fail.by, 'verifier-2');
-  assert.equal(gateDecision({ bind: patch, files: ['docs/a.md'], verdicts: [V({ result: 'FAIL' }), V({ by: 'v3' })], authors, q: qq }).pass, true, 'a later PASS after a fix round counts');
+  assert.equal(gateDecision({ bind: patch, files: ['docs/a.md'], verdicts: [V({ result: 'FAIL' }), V({ by: 'v3' })], authors, q: qq }).pass, false, 'another verifier\'s later PASS cannot outvote a FAIL');
+  assert.equal(gateDecision({ bind: patch, files: ['docs/a.md'], verdicts: [V({ result: 'FAIL' }), V()], authors, q: qq }).pass, true, 'the same verifier re-reviewing after a fix can clear its FAIL');
 });
 
 test('second provider: gate, auth and billing paths need PASSes from two providers other than the authors', () => {
