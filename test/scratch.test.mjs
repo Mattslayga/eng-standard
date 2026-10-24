@@ -148,20 +148,23 @@ test('eng launch -- <cmd> on a terminal: re-parented background workers stop on 
     const beat = path.join(marks, `tty-beat-${n}`), m = path.join(marks, `tty-${n}`);
     const inner = `${process.execPath} ${ENG} launch --ref HEAD -- sh -c '(while :; do date +%s%N >> ${beat}; sleep 0.1; done) & echo "$ENG_SCRATCH $PPID" > ${m}; ${finish}'`;
     const p = spawn('script', ['-qefc', inner, '/dev/null'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] }); // the child gets the pty as stdin
-    for (let i = 0; i < 150 && !(fs.existsSync(m) && fs.readFileSync(m, 'utf8').trim() && fs.existsSync(beat)); i++) await new Promise(r => setTimeout(r, 100));
+    const exited = new Promise(r => p.on('exit', r)); // at spawn: on a fast runner script can exit before the marks file is read
+    for (let i = 0; i < 150 && !(fs.existsSync(m) && fs.readFileSync(m, 'utf8').trim()); i++) await new Promise(r => setTimeout(r, 100));
     const [round, eng] = fs.readFileSync(m, 'utf8').trim().split(' ');
-    return { p, beat, round, eng: Number(eng) };
+    return { p, exited, beat, round, eng: Number(eng) };
   };
-  let { p, beat, round } = await run('a', 'exit 0');
-  await new Promise(r => p.on('exit', r));
-  let n = fs.readFileSync(beat, 'utf8').split('\n').length; await new Promise(r => setTimeout(r, 600));
-  assert.equal(fs.readFileSync(beat, 'utf8').split('\n').length, n, 'normal exit: the background worker stopped with the round');
+  const beats = f => fs.existsSync(f) ? fs.readFileSync(f, 'utf8').split('\n').length : 0; // the round may stop the worker before its first write
+  let { exited, beat, round } = await run('a', 'exit 0');
+  await exited;
+  let n = beats(beat); await new Promise(r => setTimeout(r, 600));
+  assert.equal(beats(beat), n, 'normal exit: the background worker stopped with the round');
   assert.ok(!fs.existsSync(round), 'round removed');
-  let eng; ({ p, beat, round, eng } = await run('b', 'wait'));
+  let eng; ({ exited, beat, round, eng } = await run('b', 'wait'));
+  for (let i = 0; i < 50 && !fs.existsSync(beat); i++) await new Promise(r => setTimeout(r, 100)); // the worker is running before eng is signalled
   assert.ok(Number.isInteger(eng) && eng > 1, `eng pid parsed from the marks file: ${eng}`); // kill(0) would signal this test's whole process group
-  process.kill(eng, 'SIGTERM'); await new Promise(r => p.on('exit', r));
-  n = fs.readFileSync(beat, 'utf8').split('\n').length; await new Promise(r => setTimeout(r, 600));
-  assert.equal(fs.readFileSync(beat, 'utf8').split('\n').length, n, 'SIGTERM: the background worker stopped with the round');
+  process.kill(eng, 'SIGTERM'); await exited;
+  n = beats(beat); await new Promise(r => setTimeout(r, 600));
+  assert.equal(beats(beat), n, 'SIGTERM: the background worker stopped with the round');
   assert.ok(!fs.existsSync(round), 'round removed');
 });
 
