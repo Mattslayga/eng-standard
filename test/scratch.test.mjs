@@ -81,6 +81,8 @@ test('doctor config: every skipped piece fails; the template declares them all',
   const bad = doctorConfig(bare, files, () => '').filter(c => !c.ok).map(c => c.what);
   for (const m of [/scratch_root/, /disk_lint/, /evidence is per_pr/, /caches.cargo_target/, /caches.bun/, /caches.vite/, /caches.deno/, /vite.config.ts uses the shared Vite cache/, /containers.label/]) assert.ok(bad.some(b => m.test(b)), `fails: ${m}`);
   assert.ok(doctorConfig(tpl, ['scripts/db.sh'], () => 'docker run -d postgres').some(c => /containers.label/.test(c.what)), 'a docker run in a script needs the container policy');
+  const noCfg = doctorConfig(tpl, ['package.json'], f => f === 'package.json' ? '{"devDependencies":{"vite":"^7.3.1"}}' : '').filter(c => !c.ok).map(c => c.what);
+  assert.ok(noCfg.some(w => /Vite is used, so a vite.config sets cacheDir/.test(w)), 'Vite with no vite.config gets a new cache every round, so doctor fails it (PR 19 round-7 P2)');
   assert.equal(HYGIENE_DEFAULTS.scratch_root.includes('/tmp'), false);
   const rel = doctorConfig({ ...tpl, hygiene: { ...tpl.hygiene, scratch_root: '.eng/scratch', caches: { ...tpl.hygiene.caches, vite: 'node_modules/.vite' } } }, files, read).filter(c => !c.ok).map(c => c.what);
   assert.ok(rel.some(w => /scratch_root/.test(w)) && rel.some(w => /caches.vite/.test(w)), 'relative paths are a new cache per round or worktree, so doctor fails them');
