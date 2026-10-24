@@ -7,9 +7,11 @@ run `eng sync` here). Its own settings live in the root `eng.config.yml`.
 
 - **No PR needs a human merge, gate changes included.** Every PR merges by GitHub auto-merge
   (`gh pr merge <n> --auto --squash`). Nobody presses merge, Matt included.
-- **One config, one required check.** `merge.auto` in `eng.config.yml` holds the rule. The one required check is `test`
-  (`.github/workflows/ci.yml`). It runs the tests, then `eng merge gate`, using main's code and main's config, so a PR
-  cannot pass its own gate.
+- **One config, one required check.** `merge.auto` in `eng.config.yml` holds the rule. The one required check is the
+  commit status `eng-merge-gate`. The trusted `.github/workflows/gate.yml` posts it, and that workflow always runs main's
+  copy and main's code, with the PR read only as data. It waits for the PR's own `test` check (`ci.yml`), then applies
+  `eng merge gate`, so a PR cannot pass or remove its own gate. No job may be named `eng-merge-gate`: GitHub counts a
+  skipped required job as passing, and the gate fails any check run that carries the name.
 - **Default mode `strict`.** Branch protection requires the PR to be up to date with main (strict required checks). The
   gate needs an independent verifier's PASS for that exact head commit, so every update needs a new verdict.
   `eng merge watch` updates a behind PR that has auto-merge on (a merge from main, never a force push).

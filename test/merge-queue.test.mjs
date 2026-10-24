@@ -79,6 +79,15 @@ test('auto-revert: needs bot provenance, the auto-revert/<sha12> branch, a shipp
   assert.equal(gateDecision({ bind: head({ upToDate: false }), files: [], verdicts: [], authors, q, revert: good }).need, 'update');
 });
 
+test('round-3 openai: a FAIL beats "behind" for the restart; detectMode reads the bound App per required check', () => {
+  const d = gateDecision({ bind: head({ upToDate: false }), files: ['docs/a.md'], verdicts: [V({ result: 'FAIL' })], authors, q });
+  assert.equal(d.need, 'fix', 'an exact-head FAIL is reported even when the branch is behind');
+  const now = Date.now(); assert.equal(restartDecision({ gate: d, head: H, headAt: new Date(now).toISOString(), now, waitMinutes: 30 }).restart, true);
+  assert.equal(gateDecision({ bind: head({ upToDate: false }), files: ['docs/a.md'], verdicts: [V()], authors, q }).need, 'update');
+  const m = detectMode({ ownerType: 'Organization', visibility: 'public', rulesets: [{ enforcement: 'active', rules: [{ type: 'required_status_checks', parameters: { strict_required_status_checks_policy: true, required_status_checks: [{ context: 'eng-merge-gate', integration_id: 42 }] } }] }] });
+  assert.deepEqual(m.apps, { 'eng-merge-gate': 42 });
+});
+
 test('detect mode: user-owned repos have no queue; org public repos can; an active merge_queue rule means queue mode', () => {
   const strictRs = [{ enforcement: 'active', rules: [{ type: 'required_status_checks', parameters: { strict_required_status_checks_policy: true, required_status_checks: [{ context: 'test' }] } }] }];
   let m = detectMode({ ownerType: 'User', visibility: 'public', rulesets: strictRs });
@@ -198,6 +207,17 @@ test('eng merge gate, queue (merge_group): binds the queued patch-id; gate files
   setMode('strict');
 });
 
+test('eng merge gate: renaming a file out of an auth path still needs the second provider (round-3 P1)', () => {
+  setMode('strict');
+  git('checkout -q --detach origin/main'); fs.mkdirSync(path.join(dir, 'src/auth'), { recursive: true }); fs.writeFileSync(path.join(dir, 'src/auth/policy.ts'), 'export const allow = false\n'); git('add -A'); git('commit -qm policy'); git('update-ref refs/remotes/origin/main HEAD');
+  git('checkout -q -B mv origin/main'); git('mv src/auth/policy.ts src/policy.ts'); git('commit -qm mv -m "Agent: builder-1\nAgent-Family: claude"'); const head = git('rev-parse HEAD');
+  put('repos/o/r/pulls/13', { number: 13, labels: [], body: '', user: { login: 'b' }, head: { sha: head, ref: 'mv' }, base: { ref: 'main' } });
+  put('repos/o/r/pulls/13/commits?per_page=100', [[{ commit: { message: 'mv\n\nAgent: builder-1\nAgent-Family: claude', author: { email: 't@t' } } }]]);
+  comments([V({ patch_id: 'x', sha: head })], 13);
+  const r = eng(['merge', 'gate', '--pr', '13']);
+  assert.equal(r.status, 1, r.stdout + r.stderr); assert.match(r.stdout, /src\/auth\/policy\.ts.*need PASSes from two providers/);
+});
+
 test('eng merge gate: an auto-revert passes only from the bot, on its branch, for a shipped commit; dispatch carries the PR (round-1 P1s)', () => {
   git('checkout -q --detach origin/main'); fs.writeFileSync(path.join(dir, 'bad.txt'), 'bad\n'); git('add -A'); git('commit -qm bad');
   const bad = git('rev-parse HEAD'); git('update-ref refs/remotes/origin/main HEAD');
@@ -262,6 +282,7 @@ test('eng merge watch --dry-run: stuck flag, restart on FAIL, update-branch for 
   assert.doesNotMatch(fs.readFileSync(calls, 'utf8'), /-X (POST|PUT)/, 'dry run posts nothing');
   git('checkout -q --detach origin/main'); fs.writeFileSync(path.join(dir, 'moved.md'), 'm\n'); git('add -A'); git('commit -qm moved'); git('update-ref refs/remotes/origin/main HEAD');
   put('repos/o/r/pulls?state=open&base=main&per_page=100', [[{ ...pr8, auto_merge: { merge_method: 'squash' } }]]);
+  comments([V({ patch_id: 'x', sha: head })], 8); // with a PASS, a behind branch is the only thing left: update it (a FAIL restarts the owner instead)
   r = eng(['merge', 'watch', '--dry-run']);
   assert.match(r.stdout, /#8: behind main with auto-merge on: would update the branch/);
   put('repos/o/r/commits/main', { sha: 'd'.repeat(40), commit: { committer: { date: old } } });

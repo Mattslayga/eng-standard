@@ -12,7 +12,7 @@ project:
 
 merge:                            # The merge rule (AGENTS.md). No PR needs a human merge, gate changes included. Nobody bypasses anything.
   owner: "GitHub auto-merge behind strict branch protection. No human merges, Matt included"
-  command: "gh pr merge <n> --auto --squash   (the author's lane turns on auto-merge; GitHub merges once the branch is up to date and `test` passes)"
+  command: "gh pr merge <n> --auto --squash   (the author's lane turns on auto-merge; GitHub merges once the branch is up to date and the eng-merge-gate status passes)"
   method: squash
   auto:
     mode: strict                  # strict: PR up to date with main, PASS bound to the exact head (default). queue: merge queue, PASS bound to the queued patch-id (optional speed-up; eng doctor says which the repo can run)

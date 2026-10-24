@@ -66,4 +66,4 @@ No job carries the required name.
 - **Org setting.** `Slaytek-Systems` forbids GitHub Actions from creating PRs. The auto-revert needs it ("Allow GitHub Actions to create and approve pull requests", org and repo level). `eng doctor` fails until it is on.
 - **Verifier identity.** Every agent on the devbox posts to GitHub as one identity, so verdict identity is self-declared. Separate bot accounts or GitHub Apps per verifier provider, listed in `merge.auto.verifier_logins`, close that. `eng doctor` fails until they exist.
 - **Strict sandbox recovery.** `Mattslayga/eng-sandbox` is wedged by the first `gate.yml` (above). It needs an owner-only ruleset reset, or deleting and recreating the sandbox.
-- **eng-standard settings** (`eng merge settings` prints them): strict ruleset, one required check `test`, auto-merge, the PR-creation permission, labels `stuck`, `hold`, `auto-revert`, and the `ENG_RESTART_WEBHOOK` secret.
+- **eng-standard settings** (`eng merge settings` prints them): strict ruleset, one required check `eng-merge-gate`, auto-merge, the PR-creation permission, labels `stuck`, `hold`, `auto-revert`, and the `ENG_RESTART_WEBHOOK` secret.
