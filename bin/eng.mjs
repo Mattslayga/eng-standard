@@ -707,10 +707,15 @@ function e2eRequired() {
   if (process.argv.includes('--exit-code') && !d.required) process.exit(10);
 }
 
-function evidenceDirKey() {
-  let pr = null; if (!process.env.ENG_PR && !process.env.BUILDKITE_PULL_REQUEST && !process.env.GITHUB_REF) { try { pr = JSON.parse(execSync('gh pr view --json number', { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 })).number; } catch {} }
-  let branch = ''; try { branch = sh('git rev-parse --abbrev-ref HEAD'); } catch {}
-  return evidenceKey({ ...process.env, ENG_BRANCH: process.env.ENG_BRANCH || branch }, pr);
+// The PR from CI env, else from gh for this branch (push builds carry refs/heads/..., not the PR). With no PR the dir is
+// branch-<slug>, and .branch inside records the real name so eng clean --evidence can resolve it later.
+function evidenceDirKey(dir) {
+  let branch = process.env.ENG_BRANCH || process.env.BUILDKITE_BRANCH || (process.env.GITHUB_REF || '').replace(/^refs\/heads\//, '') || '';
+  if (!branch || branch.startsWith('refs/')) { try { branch = sh('git rev-parse --abbrev-ref HEAD'); } catch {} }
+  let key = evidenceKey({ ...process.env, ENG_BRANCH: branch });
+  if (key.startsWith('branch-')) { try { key = evidenceKey({ ENG_BRANCH: branch }, JSON.parse(execSync(`gh pr view ${JSON.stringify(branch)} --json number`, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 })).number); } catch {} }
+  if (key.startsWith('branch-') && dir) { fs.mkdirSync(path.join(ROOT, dir, key), { recursive: true }); fs.writeFileSync(path.join(ROOT, dir, key, '.branch'), branch + '\n'); }
+  return key;
 }
 // ---------- e2e (tester-army/e2e, open source, Playwright; no TesterArmy account) ----------
 // Flake rule: a new or changed e2e test must pass e2e.flake_runs consecutive runs before it may block. Mixed = quarantine + issue.
@@ -751,7 +756,7 @@ function e2e() {
     const ai = files.filter(f => /\bagent\.(act|assert|waitFor|extract)\(|^\s*agents\s*:/m.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
     if (ai.length) die(`e2e: e2e.model is none but these files use agent steps or configure agents: ${ai.join(', ')}`);
   }
-  const out = path.join(e.evidence_dir, evidenceDirKey(), H, 'e2e');  // per PR, so eng clean --evidence clears it on merge or close
+  const out = path.join(e.evidence_dir, evidenceDirKey(e.evidence_dir), H, 'e2e');  // per PR, so eng clean --evidence clears it on merge or close
   fs.rmSync(path.join(ROOT, out), { recursive: true, force: true });
   // CI=1: cache read-only (never records); --strict-cache: a stale recording fails instead of handing off to a live agent.
   const env = { ...tmp.env, DO_NOT_TRACK: '1', E2E_TELEMETRY_DISABLED: '1', CI: '1', PATH: `${e.node_bin ? e.node_bin + ':' : ''}${process.env.PATH}` };
@@ -939,7 +944,7 @@ function doctor() {
   const cfg = loadConfig(), files = sh('git ls-files --cached --others --exclude-standard').split('\n').filter(Boolean);
   const checks = doctorConfig(cfg, files, readOr);
   for (const c of checks) console.log(`  ${c.ok ? 'ok  ' : 'FAIL'} ${c.what}${c.ok ? '' : `  (fix: ${c.fix})`}`);
-  let hits = lintHits({ ...cfg, hygiene: { ...cfg.hygiene, disk_lint: true }, constraints: undefined, flags: undefined, db: undefined }).filter(h => DISK_RULE_IDS.includes(h.rule) || h.rule === TMP_RULE.id);
+  let hits = lintHits({ ...cfg, hygiene: { ...cfg.hygiene, disk_lint: true, tmp_lint: true }, constraints: undefined, flags: undefined, db: undefined }).filter(h => DISK_RULE_IDS.includes(h.rule) || h.rule === TMP_RULE.id);
   const bl = readOr(baselinePath('lint'));
   if (bl) { const fresh = new Set(compareBaseline(JSON.parse(bl), lintFindings(hits)).fresh.map(f => f.fingerprint)); hits = hits.filter(h => fresh.has(lintFindings([h])[0].fingerprint)); }
   for (const h of hits) console.log(`  FAIL ${hitText(h)}`);
@@ -998,7 +1003,14 @@ function cleanContainers(cfg, apply) {
 function cleanEvidence(cfg, apply) {
   const d = path.join(ROOT, cfg.e2e?.evidence_dir ?? '.eng/evidence'); const names = fs.existsSync(d) ? fs.readdirSync(d) : [];
   const state = n => { try { return JSON.parse(execSync(`gh pr view ${n} --json state`, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 })).state; } catch { return null; } };
-  const rows = classifyEvidence(names, state);
+  const branchState = n => {
+    let b; try { b = fs.readFileSync(path.join(d, n, '.branch'), 'utf8').trim(); } catch { return null; }
+    try { const prs = JSON.parse(execSync(`gh pr list --head ${JSON.stringify(b)} --state all --json state`, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 })).map(p => p.state);
+      if (prs.length) return prs.includes('OPEN') ? 'OPEN' : prs.includes('MERGED') ? 'MERGED' : 'CLOSED'; } catch { return null; }
+    const r = spawnSync('git', ['ls-remote', '--exit-code', '--heads', 'origin', b], { cwd: ROOT, encoding: 'utf8', timeout: 15000 });
+    return r.status === 2 ? 'GONE' : r.status === 0 ? 'OPEN' : null;
+  };
+  const rows = classifyEvidence(names, state, branchState);
   for (const r of rows) { if (!r.keep && apply) fs.rmSync(path.join(d, r.name), { recursive: true, force: true }); console.log(`  ${r.keep ? 'keep  ' : apply ? 'removed' : 'would remove'} ${path.relative(ROOT, path.join(d, r.name))} (${r.why})`); }
   console.log(`eng clean --evidence: ${rows.filter(r => !r.keep).length} merged/closed PR evidence dir(s)${apply ? ' removed' : ' (dry run; --apply to delete)'}, ${rows.filter(r => r.keep).length} kept`);
 }

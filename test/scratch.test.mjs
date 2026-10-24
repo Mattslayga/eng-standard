@@ -67,6 +67,9 @@ test('evidence is per PR and only merged or closed PRs are removable', () => {
   assert.deepEqual(rows.filter(r => !r.keep).map(r => r.name), ['pr-1', 'pr-2']);
   assert.match(rows.find(r => r.name === 'pr-4').why, /state unknown/);
   assert.match(rows.find(r => r.name.length === 40).why, /legacy per-SHA/);
+  const br = classifyEvidence(['branch-a', 'branch-b', 'branch-c', 'branch-d'], () => null, n => ({ 'branch-a': 'GONE', 'branch-b': 'MERGED', 'branch-c': 'OPEN' })[n] ?? null);
+  assert.deepEqual(br.filter(r => !r.keep).map(r => r.name), ['branch-a', 'branch-b'], 'branch dirs (push builds) are cleared once merged or gone');
+  assert.equal(evidenceKey({ GITHUB_REF: 'refs/heads/main', ENG_BRANCH: 'main' }), 'branch-main', 'a push ref is not a PR');
 });
 
 test('doctor config: every skipped piece fails; the template declares them all', () => {
@@ -79,6 +82,9 @@ test('doctor config: every skipped piece fails; the template declares them all',
   for (const m of [/scratch_root/, /disk_lint/, /evidence is per_pr/, /caches.cargo_target/, /caches.bun/, /caches.vite/, /caches.deno/, /vite.config.ts uses the shared Vite cache/, /containers.label/]) assert.ok(bad.some(b => m.test(b)), `fails: ${m}`);
   assert.ok(doctorConfig(tpl, ['scripts/db.sh'], () => 'docker run -d postgres').some(c => /containers.label/.test(c.what)), 'a docker run in a script needs the container policy');
   assert.equal(HYGIENE_DEFAULTS.scratch_root.includes('/tmp'), false);
+  const rel = doctorConfig({ ...tpl, hygiene: { ...tpl.hygiene, scratch_root: '.eng/scratch', caches: { ...tpl.hygiene.caches, vite: 'node_modules/.vite' } } }, files, read).filter(c => !c.ok).map(c => c.what);
+  assert.ok(rel.some(w => /scratch_root/.test(w)) && rel.some(w => /caches.vite/.test(w)), 'relative paths are a new cache per round or worktree, so doctor fails them');
+  assert.ok(doctorConfig({ ...tpl, hygiene: { ...tpl.hygiene, tmp_lint: false } }, files, read).some(c => !c.ok && /tmp_lint/.test(c.what)), 'doctor fails tmp_lint: false');
 });
 
 test('eng launch -- <cmd>: one 0700 round under the scratch root, shared caches, removed on failure', () => {
@@ -108,6 +114,17 @@ test('eng launch -- <cmd>: round removed on SIGTERM', async () => {
   assert.ok(!fs.existsSync(round), 'round removed after SIGTERM');
 });
 
+test('eng launch -- <cmd>: SIGTERM to eng alone stops the command, exits 143 and removes the round', async () => {
+  const p = spawn(process.execPath, [ENG, 'launch', '--ref', 'HEAD', '--', 'sh', '-c', `echo "$ENG_SCRATCH $$" > ${marks}/d; exec sleep 30`], { cwd: dir, env });
+  const m = path.join(marks, 'd');
+  for (let i = 0; i < 100 && !(fs.existsSync(m) && fs.readFileSync(m, 'utf8').trim()); i++) await new Promise(r => setTimeout(r, 100));
+  const [round, pid] = fs.readFileSync(m, 'utf8').trim().split(' ');
+  const code = await new Promise(r => { p.on('exit', (c, s) => r(c ?? s)); p.kill('SIGTERM'); });
+  assert.equal(code, 143, 'exit code reports the signal, not 0');
+  assert.throws(() => process.kill(Number(pid), 0), 'the command was stopped, not orphaned');
+  assert.ok(!fs.existsSync(round), 'round removed');
+});
+
 test('eng doctor and eng rules prove on a repo with the Warden cases', () => {
   let r = eng('doctor'); assert.equal(r.status, 0, out(r)); assert.match(r.stdout, /eng doctor: PASS/);
   r = eng('rules', 'prove'); assert.equal(r.status, 0, out(r));
@@ -123,4 +140,8 @@ test('eng doctor and eng rules prove on a repo with the Warden cases', () => {
   r = eng('doctor'); assert.equal(r.status, 0, out(r));
   const p = path.join(dir, 'eng.config.yml'), c = YAML.parse(fs.readFileSync(p, 'utf8')); delete c.hygiene.containers; fs.writeFileSync(p, YAML.stringify(c));
   r = eng('doctor'); assert.equal(r.status, 1, out(r)); assert.match(r.stdout, /FAIL hygiene.containers.label/);
+  c.hygiene.containers = { label: 'eng.repo' }; c.hygiene.tmp_lint = false; fs.writeFileSync(p, YAML.stringify(c));
+  fs.mkdirSync(path.join(dir, 'test')); fs.writeFileSync(path.join(dir, 'test/a.test.mjs'), "fs.writeFileSync('/tmp/x', '')\n");
+  r = eng('doctor'); assert.equal(r.status, 1, out(r));
+  assert.match(r.stdout, /FAIL hygiene.tmp_lint is on/); assert.match(r.stdout, /test\/a\.test\.mjs:1: \[test-bare-tmpdir\]/, 'doctor scans tests even when tmp_lint is off');
 });
