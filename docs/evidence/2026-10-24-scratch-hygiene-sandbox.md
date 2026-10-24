@@ -1,16 +1,16 @@
 # v0.9.1 scratch and disk hygiene proof on eng-sandbox
 
-Run: `bash docs/evidence/2026-10-24-scratch-hygiene-sandbox.sh /home/dev/.t3/projects/eng-sandbox` from this checkout, 2026-10-24 00:39 UTC (rerun after the round-3 verifier fixes). Real cargo 1.93.1, deno 2.9.1, rootless docker 29.7.1 (postgres:17-alpine, which declares a VOLUME, so each container gets an anonymous volume).
+Run: `bash docs/evidence/2026-10-24-scratch-hygiene-sandbox.sh /home/dev/.t3/projects/eng-sandbox` from this checkout, 2026-10-24 03:05 UTC (rerun after the round-5 verifier fix). Real cargo 1.93.1, deno 2.9.1, rootless docker 29.7.1 (postgres:17-alpine, which declares a VOLUME, so each container gets an anonymous volume).
 
 The Warden cases (motus mkdtemp in /tmp, Core Edge Rust targets in /tmp, equitus Deno caches per run, Docker anonymous volumes) are planted as files inside an eng launch round at sandbox `origin/main` and vanish with it; the shared checkout is never edited. The credential check counts files containing the gh token without printing it. Indented `FAIL` lines are doctor output during the two expected-failure runs.
 
 ```text
-eng-standard 0.9.1 at 4cc0857; sandbox /home/dev/.t3/projects/eng-sandbox
+eng-standard 0.9.1 at 7f38dc2; sandbox /home/dev/.t3/projects/eng-sandbox
 
 == 1. doctor + Warden cases inside one round at origin/main
-     round /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8o1m-3773295-launch-21ziDL (mode 700, removed on exit)
-     worktree /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8o1m-3773295-launch-21ziDL/wt at origin/main 7552a991; TMPDIR=/home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8o1m-3773295-launch-21ziDL/tmp; shared checkout /home/dev/.t3/projects/eng-sandbox left at mode 775
-      round ENG_SCRATCH=/home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8o1m-3773295-launch-21ziDL (mode 700), cwd /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8o1m-3773295-launch-21ziDL/wt
+     round /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgnir-3206381-launch-mQ6Zos (mode 700, removed on exit)
+     worktree /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgnir-3206381-launch-mQ6Zos/wt at origin/main 983d35a6; TMPDIR=/home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgnir-3206381-launch-mQ6Zos/tmp; shared checkout /home/dev/.t3/projects/eng-sandbox left at mode 775
+      round ENG_SCRATCH=/home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgnir-3206381-launch-mQ6Zos (mode 700), cwd /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgnir-3206381-launch-mQ6Zos/wt
         FAIL hygiene.scratch_root is set, absolute and not under /tmp  (fix: scratch_root: "${XDG_CACHE_HOME}/eng/${repo}/scratch")
         ok   hygiene.disk_lint is on (built-in disk rules run in eng lint)
         ok   hygiene.tmp_lint is on (tests write only under ENG_TMP)
@@ -52,7 +52,7 @@ eng-standard 0.9.1 at 4cc0857; sandbox /home/dev/.t3/projects/eng-sandbox
         ok   hygiene.containers.label is set (containers run --rm or carry the label; eng clean --containers removes them with volumes)
       eng doctor: PASS (7 config checks, 7 disk rules)
       OK   doctor passes after the fixes (exit 0)
-      /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8o1m-3773295-launch-21ziDL/tmp/proof-e2e-lI5arV
+      /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgnir-3206381-launch-mQ6Zos/tmp/proof-e2e-UrBmWW
       OK   motus case: proof script writes under the round (exit 0)
       OK   it is inside ENG_SCRATCH
       /home/dev/.cache/eng/eng-sandbox/cargo-target/debug/hello
@@ -60,67 +60,67 @@ eng-standard 0.9.1 at 4cc0857; sandbox /home/dev/.t3/projects/eng-sandbox
       /home/dev/.cache/eng/eng-sandbox/deno
       OK   equitus case: deno uses the stable DENO_DIR (exit 0)
       OK   labelled postgres started
-   eng launch: command exited 0; removing round eng-eng-sandbox-mvlo8o1m-3773295-launch-21ziDL
+   eng launch: command exited 0; removing round eng-eng-sandbox-mvltgnir-3206381-launch-mQ6Zos
    OK   round 1 (exit 0)
    OK   round dirs under /home/dev/.cache/eng/eng-sandbox/scratch all removed
    OK   no credential in the scratch root or caches
 
 == 2. a failing round is removed too
-     round /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8p5l-3773923-launch-LBitQd (mode 700, removed on exit)
-     worktree /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8p5l-3773923-launch-LBitQd/wt at origin/main 7552a991; TMPDIR=/home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8p5l-3773923-launch-LBitQd/tmp; shared checkout /home/dev/.t3/projects/eng-sandbox left at mode 775
-   eng launch: command exited 7; removing round eng-eng-sandbox-mvlo8p5l-3773923-launch-LBitQd
+     round /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgodo-3206884-launch-P0oD1g (mode 700, removed on exit)
+     worktree /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgodo-3206884-launch-P0oD1g/wt at origin/main 983d35a6; TMPDIR=/home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgodo-3206884-launch-P0oD1g/tmp; shared checkout /home/dev/.t3/projects/eng-sandbox left at mode 775
+   eng launch: command exited 7; removing round eng-eng-sandbox-mvltgodo-3206884-launch-P0oD1g
    OK   round exits 7 (exit 7)
    OK   failing round removed
-     round /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8p7u-3773948-verdict-dy2TqO (mode 700, removed on exit)
-     worktree /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8p7u-3773948-verdict-dy2TqO/wt at origin/main 7552a991; TMPDIR=/home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8p7u-3773948-verdict-dy2TqO/tmp; shared checkout /home/dev/.t3/projects/eng-sandbox left at mode 775
-   eng verdict round: command exited 0; removing round eng-eng-sandbox-mvlo8p7u-3773948-verdict-dy2TqO
+     round /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgog5-3206946-verdict-ZE1kOt (mode 700, removed on exit)
+     worktree /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgog5-3206946-verdict-ZE1kOt/wt at origin/main 983d35a6; TMPDIR=/home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgog5-3206946-verdict-ZE1kOt/tmp; shared checkout /home/dev/.t3/projects/eng-sandbox left at mode 775
+   eng verdict round: command exited 0; removing round eng-eng-sandbox-mvltgog5-3206946-verdict-ZE1kOt
    OK   verdict round (exit 0)
    OK   verdict round removed
 
 == 3. shared caches survive rounds
-     round /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8p9t-3773976-launch-gP318q (mode 700, removed on exit)
-     worktree /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8p9t-3773976-launch-gP318q/wt at origin/main 7552a991; TMPDIR=/home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8p9t-3773976-launch-gP318q/tmp; shared checkout /home/dev/.t3/projects/eng-sandbox left at mode 775
+     round /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgoim-3206969-launch-A4LgpY (mode 700, removed on exit)
+     worktree /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgoim-3206969-launch-A4LgpY/wt at origin/main 983d35a6; TMPDIR=/home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgoim-3206969-launch-A4LgpY/tmp; shared checkout /home/dev/.t3/projects/eng-sandbox left at mode 775
       OK   round 2 sees round 1's Cargo build in the shared target
       OK   round 2 sees the populated DENO_DIR
-   eng launch: command exited 0; removing round eng-eng-sandbox-mvlo8p9t-3773976-launch-gP318q
+   eng launch: command exited 0; removing round eng-eng-sandbox-mvltgoim-3206969-launch-A4LgpY
    OK   round 2 (caches) (exit 0)
    OK   same CARGO_TARGET_DIR and DENO_DIR in both rounds
    caches: /home/dev/.cache/eng/eng-sandbox/cargo-target|/home/dev/.cache/eng/eng-sandbox/deno
 
 == 4. containers: labelled postgres removed with its anonymous volume
-   container ec6dc9aacdd0, anonymous volume 7f7b3e013362
+   container b85b5b0853fc, anonymous volume 346caf4d7cb7
    OK   container carries eng.repo=eng-sandbox
-     round /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8pcs-3774033-launch-eG2VFI (mode 700, removed on exit)
-     worktree /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8pcs-3774033-launch-eG2VFI/wt at origin/main 7552a991; TMPDIR=/home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8pcs-3774033-launch-eG2VFI/tmp; shared checkout /home/dev/.t3/projects/eng-sandbox left at mode 775
-        would remove container ec6dc9aacdd0 youthful_heyrovsky Up Less than a second (with its anonymous volumes)
+     round /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgoll-3207026-launch-bjCa5f (mode 700, removed on exit)
+     worktree /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgoll-3207026-launch-bjCa5f/wt at origin/main 983d35a6; TMPDIR=/home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgoll-3207026-launch-bjCa5f/tmp; shared checkout /home/dev/.t3/projects/eng-sandbox left at mode 775
+        would remove container b85b5b0853fc happy_ishizaka Up Less than a second (with its anonymous volumes)
       eng clean --containers: 1 container(s), 0 volume(s) labelled eng.repo=eng-sandbox (dry run; --apply to remove)
       OK   clean --containers dry run lists the labelled container (exit 0)
-        removed container ec6dc9aacdd0 youthful_heyrovsky Up Less than a second (with its anonymous volumes)
+        removed container b85b5b0853fc happy_ishizaka Up Less than a second (with its anonymous volumes)
       eng clean --containers: 1 container(s), 0 volume(s) labelled eng.repo=eng-sandbox removed
       OK   clean --containers --apply (exit 0)
-   eng launch: command exited 0; removing round eng-eng-sandbox-mvlo8pcs-3774033-launch-eG2VFI
+   eng launch: command exited 0; removing round eng-eng-sandbox-mvltgoll-3207026-launch-bjCa5f
    OK   cleanup round (exit 0)
    OK   container gone
    OK   its anonymous volume gone
 
 == 5. evidence per PR, cleared on merge or close
-     round /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8pq8-3774301-launch-ZOV4N3 (mode 700, removed on exit)
-     worktree /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8pq8-3774301-launch-ZOV4N3/wt at origin/main 7552a991; TMPDIR=/home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvlo8pq8-3774301-launch-ZOV4N3/tmp; shared checkout /home/dev/.t3/projects/eng-sandbox left at mode 775
-        keep   .eng/evidence/7552a991beab3ed9d5cc3b46968073f2ee359062 (legacy per-SHA dir (not per PR): move or delete by hand)
+     round /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgoyo-3207240-launch-xUgMPm (mode 700, removed on exit)
+     worktree /home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgoyo-3207240-launch-xUgMPm/wt at origin/main 983d35a6; TMPDIR=/home/dev/.cache/eng/eng-sandbox/scratch/eng-eng-sandbox-mvltgoyo-3207240-launch-xUgMPm/tmp; shared checkout /home/dev/.t3/projects/eng-sandbox left at mode 775
+        keep   .eng/evidence/983d35a6e2778eb94bd8dbaf76cc2d662fbf79a6 (legacy per-SHA dir (not per PR): move or delete by hand)
         would remove .eng/evidence/pr-1 (PR #1 merged)
         would remove .eng/evidence/pr-2 (PR #2 merged)
         keep   .eng/evidence/pr-999999 (PR #999999 state unknown)
       eng clean --evidence: 2 merged/closed PR evidence dir(s) (dry run; --apply to delete), 2 kept
       OK   clean --evidence dry run (exit 0)
       OK   dry run removed nothing
-        keep   .eng/evidence/7552a991beab3ed9d5cc3b46968073f2ee359062 (legacy per-SHA dir (not per PR): move or delete by hand)
+        keep   .eng/evidence/983d35a6e2778eb94bd8dbaf76cc2d662fbf79a6 (legacy per-SHA dir (not per PR): move or delete by hand)
         removed .eng/evidence/pr-1 (PR #1 merged)
         removed .eng/evidence/pr-2 (PR #2 merged)
         keep   .eng/evidence/pr-999999 (PR #999999 state unknown)
       eng clean --evidence: 2 merged/closed PR evidence dir(s) removed, 2 kept
       OK   clean --evidence --apply (exit 0)
       OK   merged PRs #1 and #2 cleared; unknown PR and legacy dir kept
-   eng launch: command exited 0; removing round eng-eng-sandbox-mvlo8pq8-3774301-launch-ZOV4N3
+   eng launch: command exited 0; removing round eng-eng-sandbox-mvltgoyo-3207240-launch-xUgMPm
    OK   evidence round (exit 0)
 
 == 6. nothing in bare /tmp, shared checkout untouched

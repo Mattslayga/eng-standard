@@ -143,6 +143,45 @@ test('eng launch -- <cmd>: SIGTERM stops the whole command tree; nothing writes 
   assert.ok(!fs.existsSync(round), 'round removed');
 });
 
+test('eng launch -- <cmd> on a terminal: re-parented background workers stop on SIGTERM and on normal exit', async () => {
+  const run = async (n, finish) => {
+    const beat = path.join(marks, `tty-beat-${n}`), m = path.join(marks, `tty-${n}`);
+    const inner = `${process.execPath} ${ENG} launch --ref HEAD -- sh -c '(while :; do date +%s%N >> ${beat}; sleep 0.1; done) & echo "$ENG_SCRATCH $PPID" > ${m}; ${finish}'`;
+    const p = spawn('script', ['-qefc', inner, '/dev/null'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] }); // the child gets the pty as stdin
+    for (let i = 0; i < 150 && !(fs.existsSync(m) && fs.readFileSync(m, 'utf8').trim() && fs.existsSync(beat)); i++) await new Promise(r => setTimeout(r, 100));
+    const [round, eng] = fs.readFileSync(m, 'utf8').trim().split(' ');
+    return { p, beat, round, eng: Number(eng) };
+  };
+  let { p, beat, round } = await run('a', 'exit 0');
+  await new Promise(r => p.on('exit', r));
+  let n = fs.readFileSync(beat, 'utf8').split('\n').length; await new Promise(r => setTimeout(r, 600));
+  assert.equal(fs.readFileSync(beat, 'utf8').split('\n').length, n, 'normal exit: the background worker stopped with the round');
+  assert.ok(!fs.existsSync(round), 'round removed');
+  let eng; ({ p, beat, round, eng } = await run('b', 'wait'));
+  assert.ok(Number.isInteger(eng) && eng > 1, `eng pid parsed from the marks file: ${eng}`); // kill(0) would signal this test's whole process group
+  process.kill(eng, 'SIGTERM'); await new Promise(r => p.on('exit', r));
+  n = fs.readFileSync(beat, 'utf8').split('\n').length; await new Promise(r => setTimeout(r, 600));
+  assert.equal(fs.readFileSync(beat, 'utf8').split('\n').length, n, 'SIGTERM: the background worker stopped with the round');
+  assert.ok(!fs.existsSync(round), 'round removed');
+});
+
+test('eng launch -- <cmd>: SIGTERM while the worktree is still being made removes the round and the worktree', async () => {
+  const hooks = path.join(marks, 'hooks'); fs.mkdirSync(hooks, { recursive: true });
+  fs.writeFileSync(path.join(hooks, 'post-checkout'), `#!/bin/sh\necho "$PWD" > ${marks}/prep\nsleep 3\n`, { mode: 0o755 });
+  git(`config core.hooksPath ${hooks}`);
+  try {
+    const p = spawn(process.execPath, [ENG, 'launch', '--ref', 'HEAD', '--', 'sh', '-c', `touch ${marks}/ran`], { cwd: dir, env });
+    const m = path.join(marks, 'prep');
+    for (let i = 0; i < 100 && !fs.existsSync(m); i++) await new Promise(r => setTimeout(r, 100));
+    const wt = fs.readFileSync(m, 'utf8').trim();
+    const code = await new Promise(r => { p.on('exit', (c, s) => r(c ?? s)); p.kill('SIGTERM'); });
+    assert.equal(code, 143);
+    assert.ok(!fs.existsSync(path.dirname(wt)), 'round dir removed');
+    assert.ok(!git('worktree list').includes(path.dirname(wt)), 'its worktree is gone from git worktree list');
+    assert.ok(!fs.existsSync(path.join(marks, 'ran')), 'the command never started');
+  } finally { git('config --unset core.hooksPath'); }
+});
+
 test('eng doctor and eng rules prove on a repo with the Warden cases', () => {
   let r = eng('doctor'); assert.equal(r.status, 0, out(r)); assert.match(r.stdout, /eng doctor: PASS/);
   r = eng('rules', 'prove'); assert.equal(r.status, 0, out(r));
