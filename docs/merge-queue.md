@@ -36,6 +36,10 @@ Matt decided the rule on 24 Oct 2026 at 10:31 AM AEDT, then option 2 at 11:22 AM
 4. Repo secret `ENG_RESTART_WEBHOOK`: the URL that restarts an owning job. Without it, `eng merge watch` only comments.
 5. Give each verifier provider its own GitHub identity (a bot account or GitHub App), and list it in `merge.auto.verifier_logins`.
 
+## Break glass (Matt's call)
+
+`gate.yml` runs from `main`, so a broken gate on `main` also gates the PR that fixes it. In the strict sandbox, a `gate.yml` that could not fetch a private repo's PR head left every PR without the required status, its own fix included. Keep `gate.yml` small and tested. A repo needs a written, owner-only recovery step for a broken gate (for example, the owner swaps the required check to the previous gate for one fix PR, and the swap is logged). Matt decides that step; eng never edits rulesets.
+
 ## This PR is the bootstrap
 
 `origin/main` has no `eng merge gate` until this PR merges, so this PR's `test` job runs its own gate (the workflow says BOOTSTRAP). It needs the old ruleset's `test` and `verdict`, and it is the last PR merged by hand under the v0.8.0 rule.

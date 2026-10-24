@@ -26,15 +26,15 @@ permissions:
   checks: read
   statuses: write
 jobs:
-  eng-merge-gate:
+  trusted-gate:                     # never name this job eng-merge-gate: a job's check run would carry the required name, and the gate fails any check run that does
+    name: trusted gate
     if: github.event_name != 'issue_comment' || (github.event.issue.pull_request && startsWith(github.event.comment.body, '<!-- eng-verdict/v1 -->'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
-          fetch-depth: 0
-          persist-credentials: false
+          fetch-depth: 0              # credentials stay: a private repo needs them to fetch pull/<n>/head, and this job only ever runs main's code
       - uses: actions/setup-node@v4
         with:
           node-version: 20
