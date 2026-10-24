@@ -1,4 +1,4 @@
-# eng.config.yml for eng-standard ITSELF (v0.9.1; Design A approved by Matt, 19 Oct 2026, 3:55 PM AEDT).
+# eng.config.yml for eng-standard ITSELF (v0.10.0 keeps the v0.9.1 merge path; Design A approved by Matt, 19 Oct 2026, 3:55 PM AEDT).
 # eng-standard does not render its own AGENTS.md or SHIPPING.md (do not run `eng sync` here). This file feeds only
 # `eng verdict`, scripts/pr-gate.mjs (risk labels and self-merge) and the workflows. Changing it is risk:high.
 version: 1
@@ -34,6 +34,10 @@ ship:
       - "scripts/**"              # pr-gate.mjs: labeller and self-merge
       - "lib/risk.mjs"
       - "lib/self-merge.mjs"
+      - "lib/merge-queue.mjs"     # eng merge gate rules for consuming repos (v0.10.0)
+      - "lib/merge-cli.mjs"
+      - "docs/merge-queue.md"
+      - "templates/merge-auto/**" # reference gate workflows and config consuming repos copy
       - "lib/e2e-policy.mjs"      # glob2re, which the risk matcher uses
       - "package.json"            # scripts, deps, bin (see version_only)
       - "package-lock.json"

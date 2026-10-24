@@ -30,8 +30,13 @@ const pages = p => JSON.parse(gh(['--paginate', '--slurp', p])).flat();
 const send = (method, p, body) => gh(['-X', method, p, '--input', '-'], JSON.stringify(body ?? {}));
 const raw = (file, sha) => { try { return gh(['-H', 'Accept: application/vnd.github.raw', `repos/${R}/contents/${encodeURIComponent(file).replaceAll('%2F', '/')}?ref=${sha}`]); } catch { return null; } };
 
+// GitHub lists at most 3,000 files and 250 commits for a PR. A list shorter than the PR's own count is incomplete, and an
+// incomplete list is never evidence: files unknown are risk:high, authors unknown refuse the merge.
+const full = pr => Number.isInteger(pr.changed_files) && Number.isInteger(pr.commits) ? pr : get(`repos/${R}/pulls/${pr.number}`);
+
 function riskFor(pr) {
-  const files = pages(`repos/${R}/pulls/${pr.number}/files?per_page=100`);
+  const files = pages(`repos/${R}/pulls/${pr.number}/files?per_page=100`), want = full(pr).changed_files;
+  if (files.length !== want) return { risk: 'high', hits: [{ file: `(${files.length} of ${want ?? '?'} changed files listed)`, pattern: 'incomplete file list' }] };
   const bump = new Set((HR.version_only || []).filter(f => files.some(x => x.filename === f && x.status === 'modified'))
     .filter(f => versionOnly(f, raw(f, pr.base.sha), raw(f, pr.head.sha))));
   return classifyRisk(files, HR, bump);
@@ -55,7 +60,8 @@ const testRun = sha => get(`repos/${R}/commits/${sha}/check-runs?check_name=${en
 function prState(pr, tip) {
   const sha = pr.head.sha;
   const st = get(`repos/${R}/commits/${sha}/status`).statuses.find(s => s.context === C.status) || null;
-  const commits = pages(`repos/${R}/pulls/${pr.number}/commits?per_page=100`);
+  const commits = pages(`repos/${R}/pulls/${pr.number}/commits?per_page=100`), want = full(pr).commits;
+  if (commits.length !== want) throw new Error(`GitHub listed ${commits.length} of ${want ?? '?'} commits, so the authors are unknown`);
   return {
     risk: riskFor(pr).risk, check: testRun(sha), status: st,
     containsBase: get(`repos/${R}/compare/${tip}...${sha}`).behind_by === 0,

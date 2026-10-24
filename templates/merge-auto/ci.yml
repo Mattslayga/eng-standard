@@ -1,0 +1,49 @@
+# Tests (check `test`), on the PR's own code. The required check is `eng-merge-gate`, which the trusted gate.yml posts as a
+# commit status after reading this result: a PR can edit this file, but not gate.yml (pull_request_target runs main's copy).
+# In queue mode its queued-gate job posts eng-merge-gate for the queued commit.
+name: ci
+on:
+  pull_request:
+  merge_group:
+  workflow_dispatch:                # eng merge post dispatches this on an auto-revert branch (a GITHUB_TOKEN PR starts no workflows)
+    inputs:
+      pr:
+        description: PR number this run checks
+        required: false
+        default: ''
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm test
+      - run: node bin/eng.mjs --help
+  queued-gate:                      # queue mode only: posts eng-merge-gate for the queued commit (patch-id binding). Never name a job eng-merge-gate
+    if: github.event_name == 'merge_group'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --ignore-scripts
+      - run: node bin/eng.mjs merge gate --post-status --config-from origin/main
+        env:
+          GH_TOKEN: ${{ github.token }}

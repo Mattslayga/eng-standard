@@ -2,6 +2,30 @@
 
 Versions follow the commit titles on `main` (`vX.Y.Z: ...`). Minor = new command, config or policy area; patch = rule or doc addition to an existing area. History before 0.7.1 is in `git log`.
 
+## 0.10.0 (24 Oct 2026)
+
+**`eng merge`: the v0.10.0 merge rule as a capability for consuming repos** (Matt, 24 Oct 2026: the rule at 10:31 AM AEDT, option 2 at 11:22 AM AEDT). eng-standard itself keeps the v0.9.1 two-provider `self-merge.yml` (Option A, 3:03 PM AEDT) as its one merge path; see "Reconciled with 0.9.1" below.
+
+- **One config, one required check.** `merge.auto` in a repo's `eng.config.yml`. The one required check is the commit status `eng-merge-gate`. The trusted `gate.yml` posts it (pull_request_target, workflow_run, issue_comment and dispatch; main's copy and main's code) after the PR's own `test` check. In queue mode, `ci.yml`'s `queued-gate` posts it on the queued commit. No job carries the name, and the gate fails a check run that does.
+- **Gate hardening from the verifier rounds.** Auto-reverts are compared byte for byte, renames count both paths for the second-provider rule, raw (NUL-separated) paths mean a non-ASCII, tab or newline filename cannot slip past it, a FAIL is reported before "behind", and each verifier's latest FAIL blocks. An auto-revert that main moved past is reported behind, not rejected: watch updates it and dispatches its checks, and the updated head is checked again against main's tip.
+- **Mode `strict` (default).** Branch protection requires up-to-date branches. The gate needs an independent PASS for the exact head commit, and GitHub auto-merge merges. **Mode `queue` (optional speed-up):** where the repo has a merge queue, the PASS binds the patch-id of the queued merge_group commit. `eng doctor` detects which mode the repo can run and fails a mismatch.
+- **Gate rules.**
+  - Gate, auth and billing paths (`merge.auto.second_provider_paths`) need PASSes from two providers other than the authors'.
+  - `merge.auto.verifier_logins` binds verdicts to verifier GitHub identities. Unset, they are self-declared, and `eng doctor` says so.
+  - An `auto-revert` PR passes only when all of these hold: opened by `github-actions[bot]`, on `auto-revert/<sha12>`, its target is on main, and it is the exact inverse.
+- **`eng verdict ... --pr <n>`** posts the verdict comment and, in a repo with `merge.auto`, dispatches `gate.yml`.
+- **`eng merge post`** (`merge-post.yml`): the shipped-artifact check after each merge. A failure opens an auto-revert PR with auto-merge on and dispatches the check with the PR number.
+- **`eng merge watch`** (`merge-watch.yml`, every 10 min):
+  - A red or missing check with no activity for 30 min gets the `stuck` label.
+  - A FAIL restarts the owner at once. A missing verdict, or a missing second-provider PASS, restarts it 30 min after the push. A failed webhook delivery is retried.
+  - In strict mode it updates a behind PR that has auto-merge on.
+- **`eng merge settings`** prints the ruleset for the declared mode and never applies it.
+- **Reference workflows and config** in `templates/merge-auto/` (`gate.yml`, `merge-post.yml`, `merge-watch.yml`, `ci.yml`, `eng.config.yml`), copied into a consuming repo's `.github/workflows/`. They are not live in eng-standard.
+- **Reconciled with 0.9.1.** `lib/merge-queue.mjs` now takes verdict comments, the trust policy and authorship from `lib/self-merge.mjs`, so `eng merge gate` gets PR #21's fixes: only `OWNER`, `MEMBER` or `COLLABORATOR` comments count, `verifier_logins` keys each verifier, provider lookups are own-property only, an unknown or contradicting provider counts as none, and an edited comment counts from its edit. The reference config's `second_provider_paths` cover `lib/**` (everything `bin/eng.mjs` loads) and flat `auth.*`, `billing.*` and `payments.*` files as well as those directories. Tests derive each trusted workflow's `node <file>` entrypoints and require their whole import closure to need a second provider (reference workflows) or to be risk:high (eng-standard's own controller). eng-standard does not switch to `eng merge` here: that needs "Allow auto-merge" and a ruleset requiring `eng-merge-gate`, both Matt's settings, plus a follow-up PR that removes `self-merge.yml` in the same change.
+- **Capped GitHub lists fail closed** (openai verifier, round 9). GitHub lists at most 3,000 files and 250 commits for a PR. `scripts/pr-gate.mjs` now classifies a PR whose file list falls short of `changed_files` as risk:high, and skips one whose commit list falls short of `commits`. `eng merge gate` reads authors from the PR's git history as well as the API.
+- **Repo moved** to `Slaytek-Systems/eng-standard` (approved by Matt, 24 Oct 2026). Tags and releases survived.
+- `npm test` is now `node --test test/*.test.mjs`, so it works on Node 20 and Node 24.
+
 ## 0.9.2 (24 Oct 2026)
 
 Scratch and disk hygiene, from Warden's audit (Oct 2026): a motus proof script's mkdtemp in /tmp, Core Edge Rust targets in /tmp, equitus Deno caches per run, Docker anonymous volumes.

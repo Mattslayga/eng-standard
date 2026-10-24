@@ -242,7 +242,7 @@ test('rules 2 and 6: a risk:high PR with two-provider PASSes on its head merges,
   const p = { number: 3, state: 'open', title: 'fix: gate', draft: false, created_at: '2026-10-19T03:00:00Z', labels: [{ name: 'risk:high' }], base: { ref: 'main', sha: TIP }, head: { sha: SHA, ref: 'feat/x', repo: { full_name: 'o/r' } } };
   const routes = {
     [`GET ${R}/commits/main`]: { sha: TIP }, ...runs(TIP, 'success'), ...runs(SHA, 'success'),
-    [`GET ${R}/pulls?state=open&base=main&per_page=100`]: [p],
+    [`GET ${R}/pulls?state=open&base=main&per_page=100`]: [p], [`GET ${R}/pulls/3`]: { ...p, changed_files: 1, commits: 1 },
     [`GET ${R}/commits/${SHA}/status`]: { statuses: [{ context: 'verdict', state: 'success', created_at: '2026-10-19T04:30:00Z' }] },
     [`GET ${R}/pulls/3/commits?per_page=100`]: [{ commit: { message: 'fix\n\nAgent: builder-1\nAgent-Family: claude', author: { email: 't@t' } } }],
     [`GET ${R}/issues/3/comments?per_page=100`]: comments,
@@ -268,6 +268,11 @@ test('rules 2 and 6: a risk:high PR with two-provider PASSes on its head merges,
     r = gate({ ...lowDocs, [`GET ${R}/pulls/3/files?per_page=100`]: files });
     assert.match(r.stdout, /skip: risk:high needs PASSes/, JSON.stringify(files)); assert.equal(r.sent.length, 0);
   }
+  // GitHub lists at most 3,000 files and 250 commits for a PR (openai r9 P1s): a short list is never evidence.
+  r = gate({ ...lowDocs, [`GET ${R}/pulls/3/files?per_page=100`]: [{ filename: 'docs/a.md', status: 'modified' }], [`GET ${R}/pulls/3`]: { ...p, changed_files: 3001, commits: 1 } });
+  assert.match(r.stdout, /skip: risk:high needs PASSes/, 'a sensitive file past the listing cap still makes the PR risk:high'); assert.equal(r.sent.length, 0);
+  r = gate({ ...routes, [`GET ${R}/pulls/3`]: { ...p, changed_files: 1, commits: 251 } });
+  assert.match(r.stdout, /skip: could not read state: GitHub listed 1 of 251 commits, so the authors are unknown/, 'an author past the listing cap refuses the merge'); assert.equal(r.sent.length, 0);
 });
 
 test('round-1 P1: a raw newline in a current or previous filename still matches risk:high patterns', () => {
@@ -302,7 +307,7 @@ test('round-1 P1: with ship.self_merge.verifier_logins only listed logins count,
 
 test('google note (b): an existing unlabelled auto-revert is labelled and decided on that label in the same run', () => {
   const branch = `auto-revert/${TIP.slice(0, 12)}`;
-  const rv = { number: 9, state: 'open', title: 'Revert #5', draft: false, created_at: '2026-10-19T03:00:00Z', labels: [], user: { login: BOT }, body: `<!-- eng-auto-revert of=${TIP} -->`, base: { ref: 'main', sha: TIP }, head: { sha: HEAD, ref: branch, repo: { full_name: 'o/r' } } };
+  const rv = { number: 9, state: 'open', title: 'Revert #5', draft: false, created_at: '2026-10-19T03:00:00Z', labels: [], user: { login: BOT }, body: `<!-- eng-auto-revert of=${TIP} -->`, base: { ref: 'main', sha: TIP }, head: { sha: HEAD, ref: branch, repo: { full_name: 'o/r' } }, changed_files: 1, commits: 0 };
   const r = gate({
     [`GET ${R}/commits/main`]: { sha: TIP }, ...runs(TIP, 'failure'), ...runs(HEAD, 'success'),
     [`GET ${R}/git/commits/${TIP}`]: { message: 'feat: x (#5)', parents: [{ sha: PARENT }], tree: { sha: 'tip-tree' } },

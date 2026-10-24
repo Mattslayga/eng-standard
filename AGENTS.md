@@ -31,3 +31,7 @@ run `eng sync` here). Its own settings live in the root `eng.config.yml`.
 - **Undo:** `gh pr revert <n>` (one step: opens the revert PR, which goes through the same gates).
 
 Details, the checker command and the GitHub settings: [docs/self-merge.md](docs/self-merge.md).
+
+`eng merge` (v0.10.0, `merge.auto`) is the strict auto-merge gate this package ships for other repos. It is not live
+here: `templates/merge-auto/` holds its workflows, and switching eng-standard to it needs Matt's settings change and a
+PR that removes `self-merge.yml` in the same change. Until then `self-merge.yml` is the only merge path.
