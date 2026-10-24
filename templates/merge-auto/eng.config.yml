@@ -36,9 +36,10 @@ merge:                            # The merge rule (AGENTS.md). No PR needs a hu
       - "scripts/**"
       - "lib/merge-queue.mjs"
       - "lib/merge-cli.mjs"
+      - "lib/self-merge.mjs"      # verdict comments, trust policy, authorship and FAMILY_PROVIDER, which the gate uses
       - "lib/hygiene.mjs"         # eng doctor
       - "lib/e2e-policy.mjs"      # glob2re, which the path matcher uses
-      - "lib/renovate.mjs"        # FAMILY_PROVIDER, which the provider rule uses
+      - "lib/renovate.mjs"        # re-exports FAMILY_PROVIDER
       - "package.json"
       - "package-lock.json"
       - "**/.npmrc"

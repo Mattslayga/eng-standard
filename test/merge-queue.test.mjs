@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync, execSync } from 'node:child_process';
 import YAML from 'yaml';
+import { glob2re } from '../lib/e2e-policy.mjs';
 import { gateDecision, parseVerdicts, trusted, verdictBody, authorsFrom, groupPr, stuckDecision, restartDecision, validateAuto, autoConfig, ownerOf, detectMode, BOT } from '../lib/merge-queue.mjs';
 // eng's scratch root and shared caches live under XDG_CACHE_HOME: keep them inside this run, never in the real ~/.cache.
 process.env.XDG_CACHE_HOME = fs.mkdtempSync(path.join(process.env.ENG_TMP ?? os.tmpdir(), 'eng-xdg-'));
@@ -206,6 +207,20 @@ test('eng merge gate, queue (merge_group): binds the queued patch-id; gate files
   comments([V({ patch_id: pr.patch, sha: pr.head }), V({ patch_id: pr.patch, sha: pr.head, by: 'gemini-1', family: 'gemini', provider: 'google' })]);
   assert.equal(eng(['merge', 'gate'], { GITHUB_EVENT_PATH: pr.evq }).status, 0);
   setMode('strict');
+});
+
+test('every local module the gate imports is a second-provider path, in the template and in eng-standard (openai r7 P1)', () => {
+  const lib = path.resolve(new URL('../lib', import.meta.url).pathname), seen = new Set(), todo = ['merge-cli.mjs'];
+  while (todo.length) {
+    const f = todo.pop(); if (seen.has(f)) continue; seen.add(f);
+    for (const [, dep] of fs.readFileSync(path.join(lib, f), 'utf8').matchAll(/^import .* from '\.\/([^']+)';$/gm)) todo.push(dep);
+  }
+  assert.ok(seen.has('self-merge.mjs'), 'the gate takes its verdict rules from lib/self-merge.mjs');
+  const root = YAML.parse(fs.readFileSync(path.resolve(new URL('../eng.config.yml', import.meta.url).pathname), 'utf8')).ship.high_risk.paths;
+  for (const f of [...seen].map(x => `lib/${x}`)) {
+    assert.equal(gateDecision({ bind: head(), files: [f], verdicts: [V()], authors, q }).need, 'second-provider', `${f}: one provider must not be enough`);
+    assert.ok(root.some(g => glob2re(g).test(f)), `${f} is in eng-standard's ship.high_risk.paths`);
+  }
 });
 
 test('eng merge gate counts verdicts like self-merge (PR #21): outsiders, prototype families and edits', () => {
