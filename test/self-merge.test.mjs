@@ -279,6 +279,8 @@ test('round-1 P1: only trusted commenters count, before any verdict counts or su
   assert.match(decide(H, hi({ verdicts: [{ ...V(), ...OUT }, { ...GEM, ...OUT }] }), C, late).reason, /no independent verdict comment/, 'nor both');
   assert.match(decide(pr(), st({ verdicts: [FAIL, V({ comment_at: '2026-10-19T04:02:00Z' }), { ...FAIL, ...OUT, result: 'PASS', comment_at: '2026-10-19T04:03:00Z' }] }), C, late).reason, /FAIL by gem-r/, 'an outsider reusing a failing verifier\'s `by` cannot clear its FAIL');
   for (const association of ['CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR', 'NONE', null]) assert.equal(trusted([V({ association })], null).length, 0, String(association));
+  assert.equal(trusted([V({ family: 'invented-family', provider: 'invented-provider' })], null)[0].provider, null, 'google note (a): an unknown family does not let an unknown provider through');
+  assert.equal(trusted([V({ family: 'invented-family', provider: 'google' })], null)[0].provider, 'google');
   for (const v of [V({ by: 'x', family: 'invented-family', provider: 'invented-provider' }), V({ by: 'x', family: 'gemini', provider: 'invented-provider' })])
     assert.match(decide(H, hi({ verdicts: [V(), v] }), C, late).reason, /have openai$/, 'an unknown provider is no provider');
 });
@@ -293,4 +295,23 @@ test('round-1 P1: with ship.self_merge.verifier_logins only listed logins count,
   assert.match(decide(H, hi({ verdicts: [gpt, { ...gem, association: 'NONE' }] }), CL, late).reason, /have openai$/, 'a listed login still needs write access');
   for (const bad of [{ a: 'devin' }, [], {}, 'x']) assert.throws(() => selfMergeConfig({ ship: { self_merge: { verifier_logins: bad } } }), /verifier_logins/, JSON.stringify(bad));
   assert.equal(C.verifier_logins, null, 'eng-standard has no verifier logins yet: the shared-account residual');
+});
+
+test('google note (b): an existing unlabelled auto-revert is labelled and decided on that label in the same run', () => {
+  const branch = `auto-revert/${TIP.slice(0, 12)}`;
+  const rv = { number: 9, state: 'open', title: 'Revert #5', draft: false, created_at: '2026-10-19T03:00:00Z', labels: [], user: { login: BOT }, body: `<!-- eng-auto-revert of=${TIP} -->`, base: { ref: 'main', sha: TIP }, head: { sha: HEAD, ref: branch, repo: { full_name: 'o/r' } } };
+  const r = gate({
+    [`GET ${R}/commits/main`]: { sha: TIP }, ...runs(TIP, 'failure'), ...runs(HEAD, 'success'),
+    [`GET ${R}/git/commits/${TIP}`]: { message: 'feat: x (#5)', parents: [{ sha: PARENT }], tree: { sha: 'tip-tree' } },
+    [`GET ${R}/git/commits/${PARENT}`]: { tree: { sha: 'parent-tree' } },
+    [`GET ${R}/git/commits/${HEAD}`]: { parents: [{ sha: TIP }], tree: { sha: 'parent-tree' } },
+    [`GET ${R}/commits/${TIP}/pulls`]: [{ number: 5, merged_at: '2026-10-19T04:00:00Z', base: { ref: 'main' } }],
+    [`GET ${R}/pulls?state=open&base=main&head=o:${branch}`]: [rv], [`GET ${R}/pulls/9`]: rv,
+    [`GET ${R}/pulls/9/files?per_page=100`]: [{ filename: 'bin/eng.mjs', status: 'modified' }], [`POST ${R}/issues/9/labels`]: {},
+    [`GET ${R}/commits/${HEAD}/status`]: { statuses: [] }, [`GET ${R}/pulls/9/commits?per_page=100`]: [], [`GET ${R}/issues/9/comments?per_page=100`]: [],
+    [`GET ${R}/compare/${TIP}...${HEAD}`]: { behind_by: 0 },
+  });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.deepEqual(r.sent, [['POST', `${R}/issues/9/labels`, { labels: ['risk:high'] }]]);
+  assert.match(r.stdout, /#9 eeeeeeee: skip: no verdict status on head/, 'decided past the label check on this tick');
 });

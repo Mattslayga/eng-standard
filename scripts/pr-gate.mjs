@@ -45,6 +45,7 @@ function label(n) {
   if (dry) return;
   send('POST', `repos/${R}/issues/${n}/labels`, { labels: [want] });
   if (pr.labels.some(l => l.name === drop)) gh(['-X', 'DELETE', `repos/${R}/issues/${n}/labels/${encodeURIComponent(drop)}`]);
+  return want;
 }
 
 const testRun = sha => get(`repos/${R}/commits/${sha}/check-runs?check_name=${encodeURIComponent(C.check)}&filter=latest&per_page=100`).check_runs
@@ -78,7 +79,7 @@ function autoRevert(tip) {
   const open = get(`repos/${R}/pulls?state=open&base=${C.base}&head=${R.split('/')[0]}:${branch}`)[0];
   if (open) {
     if (!isAutoRevert(facts(open), want)) { console.log(`main ${t8}: #${open.number} on ${branch} is not the bot's exact inverse of ${t8}; escalate to Matt; merging nothing`); return null; }
-    if (!open.labels.some(l => [C.low_label, C.high_label].includes(l.name)) && !dry) label(open.number);
+    if (!open.labels.some(l => [C.low_label, C.high_label].includes(l.name)) && !dry) open.labels = [...open.labels, { name: label(open.number) }];
     if (!testRun(open.head.sha) && !dry) send('POST', `repos/${R}/actions/workflows/ci.yml/dispatches`, { ref: branch });
     console.log(`main ${t8}: ${C.check} failed after #${shipped.number}; only its auto-revert #${open.number} may merge`);
     return open;
