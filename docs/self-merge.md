@@ -29,7 +29,8 @@ Self-merge merges a PR only when **all** hold:
     `ship.high_risk.paths` say so. Path patterns match raw names, newlines included (`glob2re` uses dotAll), for both
     a file's name and a rename's old name.
 - The latest of the `test` check, the `verdict` status and the counted verdict comments went green at least
-  `hold_minutes` ago.
+  `hold_minutes` ago. A comment's time is its last edit (`max(created_at, updated_at)`), both for which verdict is a
+  verifier's latest and for the window: editing a comment restarts the window.
 
 A new push gives a new head SHA, so everything must go green again for it and the window restarts. `hold` is checked
 again just before the merge call. Dispatch inputs cannot shorten the window.
@@ -41,7 +42,8 @@ supersedes another). The repo is public, so anyone can post a comment that looks
 - When `ship.self_merge.verifier_logins` (login to provider, in main's `eng.config.yml`) is set, only those logins
   count. The provider is the login's, whatever the comment claims, and each login is one verifier for superseding.
 - Without it, a verifier is its `by` field and its provider is its `provider` field, else its family's provider. A
-  provider that is not a known one (openai, anthropic, google, xai), or that contradicts the family, counts as none.
+  provider that is not a known one (openai, anthropic, google, xai), or that contradicts the family, counts as none. Lookups are own-property only, so a family
+  or login such as `constructor` or `__proto__` resolves to no provider.
 
 **Residual.** eng-standard has no `verifier_logins` yet. Every agent posts through Matt's account, so a comment with
 write access can claim any `by`, family and provider. Separate verifier identities listed in `verifier_logins` close

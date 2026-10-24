@@ -176,7 +176,7 @@ test('rule 5: hold and draft still stop a merge; the window also counts from the
 test('verdict comments round-trip with head SHA and provider; other comments are ignored', () => {
   const rec = { sha: SHA, patch_id: 'p1', result: 'PASS', by: 'g1', family: 'gemini', provider: 'google', at: '2026-10-19T04:00:00Z' };
   const got = parseVerdicts([{ body: 'LGTM', created_at: 'x' }, { body: verdictBody(rec), created_at: '2026-10-19T04:01:00Z' }, { body: `${verdictBody(rec).split('```')[0]}` }]);
-  assert.deepEqual(got, [{ ...rec, login: null, association: null, comment_at: '2026-10-19T04:01:00Z' }]);
+  assert.deepEqual(got, [{ ...rec, login: null, association: null, comment_at: '2026-10-19T04:01:00.000Z' }]);
   const [w] = parseVerdicts([{ body: verdictBody(rec), user: { login: 'x' }, author_association: 'NONE', created_at: 'y' }]);
   assert.deepEqual([w.login, w.association], ['x', 'NONE'], 'the commenter is kept for the trust policy');
 });
@@ -314,4 +314,34 @@ test('google note (b): an existing unlabelled auto-revert is labelled and decide
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.deepEqual(r.sent, [['POST', `${R}/issues/9/labels`, { labels: ['risk:high'] }]]);
   assert.match(r.stdout, /#9 eeeeeeee: skip: no verdict status on head/, 'decided past the label check on this tick');
+});
+
+const PROTO = ['constructor', '__proto__', 'toString', 'hasOwnProperty'];
+
+test('round-2 P1: prototype names never resolve to a provider, as a family or as a verifier login', () => {
+  const late = at(600), H = pr({ labels: ['risk:high'] });
+  for (const family of PROTO) {
+    const v = { ...V({ by: `x-${family}`, family }), provider: undefined };
+    assert.equal(trusted([v], null)[0].provider, null, family);
+    assert.match(decide(H, hi({ verdicts: [V(), v] }), C, late).reason, /have openai$/, `family ${family}`);
+    assert.deepEqual([...authorsFrom([`x\n\nAgent-Family: ${family}`]).providers], [], `author family ${family}`);
+  }
+  const CL = selfMergeConfig({ ship: { self_merge: { verifier_logins: { 'gpt-bot': 'openai' } } } });
+  for (const login of PROTO) {
+    assert.equal(trusted([V({ login })], CL.verifier_logins).length, 0, `login ${login}`);
+    assert.match(decide(H, hi({ verdicts: [V({ login: 'gpt-bot' }), V({ by: 'g', family: 'gemini', provider: 'google', login })] }), CL, late).reason, /have openai$/, `login ${login}`);
+  }
+  const own = JSON.parse('{"gpt-bot":"openai","__proto__":"google"}');
+  assert.deepEqual(trusted([V({ login: '__proto__' })], selfMergeConfig({ ship: { self_merge: { verifier_logins: own } } }).verifier_logins).map(v => v.provider), ['google'], 'an own __proto__ key is a real login');
+});
+
+test('round-2 P1: an edited verdict comment counts from its edit, for ordering and the hold window', () => {
+  const c = (v, created_at, updated_at) => ({ body: verdictBody(v), user: { login: 'Mattslayga' }, author_association: 'OWNER', created_at, updated_at });
+  const edited = parseVerdicts([c(V(), '2026-10-19T04:00:00Z', '2026-10-19T14:59:00Z')]);
+  assert.equal(edited[0].comment_at, '2026-10-19T14:59:00.000Z');
+  const d = decide(pr(), st({ verdicts: edited }), C, at(600));
+  assert.equal(d.merge, false, 'an old FAIL edited to PASS does not merge at once'); assert.match(d.reason, /hold window: green since 2026-10-19T14:59:00/);
+  assert.equal(decide(pr(), st({ verdicts: edited }), C, at(600) + 119 * 60_000).merge, true);
+  const order = parseVerdicts([c(V({ result: 'FAIL' }), '2026-10-19T04:00:00Z', '2026-10-19T04:30:00Z'), c(V(), '2026-10-19T04:10:00Z', '2026-10-19T04:10:00Z')]);
+  assert.match(decide(pr(), st({ verdicts: order }), C, at(600)).reason, /FAIL by gpt-checker/, 'the verifier\'s most recently edited verdict is its latest');
 });
